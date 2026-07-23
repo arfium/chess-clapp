@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="3.5 5 38 38" width="1024" height="1024">
+  <!-- Chess app icon: just the pawn, on a transparent background. The classic
+       (cburnett) pawn silhouette with a soft ivory gradient, a crisp charcoal
+       outline, and a subtle shadow so it reads on light and dark alike. -->
+  <defs>
+    <linearGradient id="pawn" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E7E8EC"/>
+    </linearGradient>
+    <filter id="shadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="0.5" stdDeviation="0.7" flood-color="#000000" flood-opacity="0.30"/>
+    </filter>
+  </defs>
+  <path filter="url(#shadow)" fill="url(#pawn)" stroke="#1E1E22" stroke-width="1.5"
+        stroke-linejoin="round" stroke-linecap="round"
+        d="M22.5 9c-2.21 0-4 1.79-4 4 0 .89.29 1.71.78 2.38C17.33 16.5 16 18.59 16 21c0 2.03.94 3.84 2.41 5.03-3 1.06-7.41 5.55-7.41 13.47h23c0-7.92-4.41-12.41-7.41-13.47 1.47-1.19 2.41-3 2.41-5.03 0-2.41-1.33-4.5-3.28-5.62.49-.67.78-1.49.78-2.38 0-2.21-1.79-4-4-4z"/>
+</svg>
