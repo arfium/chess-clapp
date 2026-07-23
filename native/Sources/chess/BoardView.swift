@@ -27,19 +27,19 @@ private enum UI {
     static let dangerText = Color(red: 132 / 255, green: 36 / 255, blue: 33 / 255)
 }
 
-struct ContentView: View {
-    @ObservedObject var state: AppState
+struct BoardView: View {
+    @ObservedObject var game: Game
     @State private var selected: Int?
     @State private var orientationWhite = true
     @State private var promo: (from: Int, to: Int)?
 
     private var legalTargets: Set<Int> {
         guard let selected else { return [] }
-        return Set(state.position.legalMoves(from: selected).map { $0.to })
+        return Set(game.position.legalMoves(from: selected).map { $0.to })
     }
 
     private var interactive: Bool {
-        state.status == "playing" && state.position.turn == state.humanColor
+        game.status == "playing" && game.position.turn == game.humanColor
     }
 
     var body: some View {
@@ -137,10 +137,10 @@ struct ContentView: View {
     }
 
     private func squareOverlay(_ sq: Int, side: CGFloat) -> some View {
-        let piece = state.position.board[sq]
+        let piece = game.position.board[sq]
         let isSelected = selected == sq
         let isTarget = legalTargets.contains(sq)
-        let isLast = state.lastMove.map { $0.from == sq || $0.to == sq } ?? false
+        let isLast = game.lastMove.map { $0.from == sq || $0.to == sq } ?? false
 
         return ZStack {
             if isLast {
@@ -229,18 +229,18 @@ struct ContentView: View {
 
     private func tap(_ sq: Int) {
         if let from = selected, legalTargets.contains(sq) {
-            if let piece = state.position.board[from], piece.type == .p,
+            if let piece = game.position.board[from], piece.type == .p,
                rankOf(sq) == 7 || rankOf(sq) == 0 {
                 promo = (from, sq)
                 selected = nil
                 return
             }
-            try? state.move(from: from, to: sq, promo: nil, by: .user)
+            try? game.move(from: from, to: sq, promo: nil, by: .user)
             selected = nil
             return
         }
 
-        if interactive, let piece = state.position.board[sq], piece.color == state.humanColor {
+        if interactive, let piece = game.position.board[sq], piece.color == game.humanColor {
             selected = sq
         } else {
             selected = nil
@@ -259,18 +259,18 @@ struct ContentView: View {
 
                 HStack(spacing: 8) {
                     actionButton("Play White", width: 100, tone: .primary) {
-                        state.newGame(humanColor: .w)
+                        game.newGame(humanColor: .w)
                         orientationWhite = true
                     }
                     actionButton("Play Black", width: 100, tone: .neutral) {
-                        state.newGame(humanColor: .b)
+                        game.newGame(humanColor: .b)
                         orientationWhite = false
                     }
-                    actionButton("Takeback", width: 92, tone: .neutral, disabled: state.history.isEmpty) {
-                        state.takeback(1)
+                    actionButton("Takeback", width: 92, tone: .neutral, disabled: game.history.isEmpty) {
+                        game.takeback(1)
                     }
-                    actionButton("Resign", width: 76, tone: .danger, disabled: state.status != "playing") {
-                        try? state.resign(state.humanColor, by: .user)
+                    actionButton("Resign", width: 76, tone: .danger, disabled: game.status != "playing") {
+                        try? game.resign(game.humanColor, by: .user)
                     }
                     Button {
                         orientationWhite.toggle()
@@ -386,11 +386,11 @@ struct ContentView: View {
             ForEach([PieceType.q, .r, .b, .n], id: \.self) { type in
                 Button {
                     if let promo {
-                        try? state.move(from: promo.from, to: promo.to, promo: type, by: .user)
+                        try? game.move(from: promo.from, to: promo.to, promo: type, by: .user)
                     }
                     promo = nil
                 } label: {
-                    PieceIcon(piece: Piece(color: state.humanColor, type: type), side: 68)
+                    PieceIcon(piece: Piece(color: game.humanColor, type: type), side: 68)
                         .frame(width: 76, height: 76)
                         .background(UI.recessed)
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -403,26 +403,26 @@ struct ContentView: View {
     }
 
     private var statusText: String {
-        switch state.status {
+        switch game.status {
         case "idle": return "Start a game"
-        case "checkmate": return "Checkmate: \(colorName(state.winner ?? .w)) wins"
-        case "resigned": return "\(colorName(state.winner ?? .w)) wins"
+        case "checkmate": return "Checkmate: \(colorName(game.winner ?? .w)) wins"
+        case "resigned": return "\(colorName(game.winner ?? .w)) wins"
         case "stalemate": return "Stalemate"
         case "draw": return "Draw"
         default:
-            return "\(colorName(state.position.turn)) to move" + (state.position.inCheck ? " - check" : "")
+            return "\(colorName(game.position.turn)) to move" + (game.position.inCheck ? " - check" : "")
         }
     }
 
     private var colorSummary: String {
-        state.status == "idle"
+        game.status == "idle"
             ? "Choose your side"
-            : "You: \(colorName(state.humanColor))   Agent: \(colorName(state.agentColor))"
+            : "You: \(colorName(game.humanColor))   Agent: \(colorName(game.agentColor))"
     }
 
     private var movePairs: [(Int, String, String)] {
         var pairs: [(Int, String, String)] = []
-        for (index, move) in state.history.enumerated() {
+        for (index, move) in game.history.enumerated() {
             let pairIndex = index / 2
             if pairIndex >= pairs.count { pairs.append((pairIndex + 1, "", "")) }
             if move.color == "w" {

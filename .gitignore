@@ -7,3 +7,7 @@ dist/
 
 # Personal Claude Code settings (the shared .claude/settings.json IS committed)
 .claude/settings.local.json
+
+# release artifacts (built by the release workflow / npm run pack)
+*.clapp
+*.clapp.sha256

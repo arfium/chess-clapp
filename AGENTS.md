@@ -10,7 +10,7 @@ SwiftUI **GUI** (for the human) and a **CLI** (for the agent) over **one shared,
   Clatch agent drives. **No TCP port.**
 - Two channels: the app's own **GUI↔CLI Unix socket** (`IPC.swift`) and the
   **Clatch↔App control pipe** (`ControlPipe.swift`). Both are wired and done.
-- The state is the game: `AppState` holds a `Position` (see `Chess.swift`), whose
+- The state is the game: `Game` holds a `Position` (see `Chess.swift`), whose
   turn it is, and the move history. The GUI and the CLI mutate it through the SAME
   methods, so they never drift.
 
@@ -53,18 +53,18 @@ the agent can also read the truth via `chess board`.
 
 | generic transport + design (keep as-is) | the chess app |
 |---|---|
-| `Bootstrap`, `ControlPipe`, `IPC`, `Resources/pieces` | `Chess` (engine), `AppState` (the game), `ContentView` (the board GUI), `Protocol` (wire shape), `main` (the verbs), `AppInfo` (identity) |
+| `Bootstrap`, `ControlPipe`, `IPC` (transport) | `Chess` (engine), `Game` (state), `BoardView` (the board GUI), `Resources/pieces`, `Protocol` (wire shape), `main` (verbs), `AppInfo` (identity) — the app is ArfChess |
 
 ## Conventions & gotchas
 
 - **macOS only.** `launch` has no cross-OS fallback; a Swift executable is macOS.
-- **Ownership is server-side:** `AppState.move(by:)` rejects a move that isn't the
+- **Ownership is server-side:** `Game.move(by:)` rejects a move that isn't the
   actor's color or isn't its turn. The GUI is the human; the socket is the agent.
 - **Sandbox-aware CLI errors** (in `IPC.swift`): `ENOENT`/`ECONNREFUSED` → "app is
   not running"; `EPERM`/`EACCES` → "blocked by the sandbox".
-- **The board** (`ContentView`) renders cburnett **PNG** pieces
+- **The board** (`BoardView`) renders cburnett **PNG** pieces
   (`Resources/pieces/cburnett`, `PieceArt` with a Unicode fallback) on a
-  lichess-style green/cream board with a light native control bar.
+  lichess-style green/cream Canvas board with a light native control bar.
 - The **frozen, normative** contract (manifest + control pipe) is
   [docs/protocol.md](docs/protocol.md) — The Clapp Protocol. Protocol wins. (Clatch's
   own [`reference/`](https://github.com/arfium/clatch) specs cover launcher internals.)

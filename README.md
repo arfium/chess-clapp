@@ -13,7 +13,7 @@ Keeping the two faces in sync is the app's job, over a private Unix socket.
 ```
         ┌── native GUI ──┐   you click pieces
         │                │
-   one live game ────────┤   ← single source of truth (AppState)
+   one live game ────────┤   ← single source of truth (Game)
         │                │
         └──── CLI ───────┘   the agent runs `chess …` in a shell
 ```
@@ -105,23 +105,22 @@ chess/
 ├── AGENTS.md · CLAUDE.md    how an agent operates the app
 └── native/
     ├── Package.swift
-    └── Sources/chess/
+    └── Sources/chess/         ← the app is ArfChess; only the transport is generic
         ├── AppInfo.swift    identity in ONE place (id, cli, signals)
-        ├── Bootstrap.swift  clatch_init: run only under Clatch
-        ├── ControlPipe.swift  Clatch↔App control pipe
-        ├── IPC.swift          GUI↔CLI Unix socket
-        ├── Theme.swift        the Clatch design system in SwiftUI
-        ├── Chess.swift        the chess engine (rules, FEN, SAN)
+        ├── Bootstrap.swift  clatch_init: run only under Clatch          (transport)
+        ├── ControlPipe.swift  Clatch↔App control pipe (frozen protocol) (transport)
+        ├── IPC.swift          GUI↔CLI Unix socket                       (transport)
+        ├── Chess.swift        the chess engine (rules, FEN, SAN)        (ArfChess)
+        ├── Game.swift         the game — the single source of truth     (ArfChess)
+        ├── BoardView.swift    the SwiftUI board + cburnett-PNG pieces   (ArfChess)
         ├── Protocol.swift     the GUI↔CLI request/response + state DTOs
-        ├── AppState.swift     the game — the single source of truth
-        ├── ContentView.swift  the SwiftUI board (the human's face)
         ├── main.swift         dispatch + app delegate + CLI client
-        └── Resources/fonts/   Plus Jakarta Sans (the Clatch UI typeface)
+        └── Resources/pieces/  cburnett PNG piece set (bundled)
 ```
 
-The window's chrome uses the **Clatch design system** (`Theme.swift`): the dark
-"space" ground, the volt (`#e1ff00`) accent, Plus Jakarta Sans. The board keeps
-its own classic green/cream.
+The board is ArfChess's own: a lichess-style green/cream Canvas with cburnett PNG
+pieces (`BoardView`, `PieceArt` with a Unicode fallback) and a light native control
+bar. It is self-styled — no Clatch Phosphor theme, no bundled fonts.
 
 ## The three that must agree
 

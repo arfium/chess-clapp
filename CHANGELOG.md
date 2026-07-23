@@ -13,11 +13,12 @@ bumps may break (SemVer 0.x rules).
   and `app.toAgentRefused {id, agent, reason}`; framing is fail-fast; a wired app
   exits when the pipe drops. `connector.signals` are `{id, type}`. `ControlPipe.swift`
   is the template's final transport verbatim.
-- **The board is now ArfChess's** — cburnett **PNG** pieces on a lichess-style
-  green/cream Canvas board with a light native control bar (`ContentView` ported from
-  ArfChess's `BoardView`, `PieceArt` loader with a Unicode fallback). Replaces the
-  Unicode-glyph board; the Clatch Phosphor theme (`Theme.swift`) and the Plus Jakarta
-  Sans fonts are dropped (the app is self-styled, like ArfChess).
+- **The app IS [ArfChess](https://github.com/arfium/arfchess)**, pulled wholesale:
+  its chess engine (`Chess.swift`), game state (`Game.swift`), and cburnett-PNG board
+  (`BoardView.swift`; `PieceArt` with a Unicode fallback), plus the designed pawn icon.
+  The board is a lichess-style green/cream Canvas with a light native control bar;
+  self-styled (no Clatch Phosphor theme, no bundled fonts). `AppInfo` is the single
+  identity source; only the transport (`ControlPipe`/`Bootstrap`/`IPC`) is the template's.
 
 ### Added
 - **Release workflow** (`.github/workflows/release.yml`): pushing a `v*` tag builds
