@@ -1,0 +1,80 @@
+{
+  "manifestVersion": 1,
+  "id": "com.arfium.chess",
+  "name": "Chess",
+  "description": "Play chess against your agent — a native GUI for you, a CLI for the agent, one live game.",
+  "about": "A Clatch app where a human plays chess in a native window and an AI agent plays through a CLI, on the same live game state. You pick a side; the agent takes the other. When you move, the app fires a `move` signal that wakes the agent to respond — it reads the real board via `chess board` and plays via `chess move`. No TCP port: the GUI and CLI stay in sync over a private Unix socket.",
+  "tags": [
+    "game",
+    "chess"
+  ],
+  "version": "0.1.0",
+  "protocol": 1,
+  "icon": "assets/icon.png",
+  "launch": {
+    "macos": "bin/chess",
+    "args": [
+      "app"
+    ]
+  },
+  "connector": {
+    "cli": "chess",
+    "cliBin": "bin/chess",
+    "commands": [
+      {
+        "name": "board",
+        "about": "print the board, whose turn it is, the move list, and your color"
+      },
+      {
+        "name": "fen",
+        "about": "print the current position as a FEN string"
+      },
+      {
+        "name": "legal",
+        "about": "list the legal moves, optionally from one square"
+      },
+      {
+        "name": "move",
+        "about": "make a move in UCI notation (e2e4, e7e8q)"
+      },
+      {
+        "name": "say",
+        "about": "show the human a short note by the board"
+      },
+      {
+        "name": "new",
+        "about": "start a new game, setting the human's color"
+      },
+      {
+        "name": "resign",
+        "about": "resign the game (the agent's color)"
+      },
+      {
+        "name": "takeback",
+        "about": "undo the last n half-moves"
+      },
+      {
+        "name": "focus",
+        "about": "focus the app window"
+      },
+      {
+        "name": "close",
+        "about": "quit the app"
+      }
+    ],
+    "signals": [
+      {
+        "id": "move",
+        "type": "run"
+      },
+      {
+        "id": "position",
+        "type": "buffered"
+      },
+      {
+        "id": "game.over",
+        "type": "context"
+      }
+    ]
+  }
+}

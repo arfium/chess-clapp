@@ -1,0 +1,9 @@
+.DS_Store
+native/.build/
+native/build/
+dist/
+*.app/
+*.log
+
+# Personal Claude Code settings (the shared .claude/settings.json IS committed)
+.claude/settings.local.json

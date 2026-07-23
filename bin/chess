@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+# Dev entrypoint: build-if-needed, then exec the real binary. In a packaged app
+# (dist/), this file is REPLACED by the compiled binary itself (see scripts/package.sh),
+# so clatch.json can point `launch` and `connector.cliBin` at the same bin/chess path.
+set -eu
+
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+BIN="$ROOT/native/.build/release/chess"
+
+if [ ! -x "$BIN" ]; then
+  (cd "$ROOT/native" && swift build -c release >/dev/null)
+fi
+
+exec "$BIN" "$@"
