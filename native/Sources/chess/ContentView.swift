@@ -1,19 +1,30 @@
+import AppKit
 import SwiftUI
 
-// The human's surface, in the Clatch design language (see Theme.swift). It observes
-// AppState and calls the SAME methods the CLI calls — so a move the agent makes via
-// `chess move` animates here instantly, and a move the human makes reaches the agent
-// as a `move` signal (declared `run`). "Share state, not screens."
+private enum UI {
+    static let minSide: CGFloat = 680
+    static let controlsHeight: CGFloat = 148
+    static let outerRadius: CGFloat = 14
+    static let buttonRadius: CGFloat = 10
+    static let buttonHeight: CGFloat = 34
+    static let controlPadding: CGFloat = 20
+    static let pieceScale: CGFloat = 0.94
 
-private let pieceGlyph: [PieceType: String] = [.k: "♚", .q: "♛", .r: "♜", .b: "♝", .n: "♞", .p: "♟"]
+    static let boardLight = Color(red: 238 / 255, green: 238 / 255, blue: 210 / 255)
+    static let boardDark = Color(red: 118 / 255, green: 150 / 255, blue: 86 / 255)
+    static let selected = Color(red: 246 / 255, green: 246 / 255, blue: 105 / 255)
+    static let lastMove = Color(red: 246 / 255, green: 210 / 255, blue: 76 / 255).opacity(0.48)
+    static let target = Color.black.opacity(0.26)
 
-private enum Board {
-    static let light = Color(red: 235 / 255, green: 236 / 255, blue: 208 / 255)
-    static let dark = Color(red: 115 / 255, green: 149 / 255, blue: 82 / 255)
-    static let lastMove = Color(red: 246 / 255, green: 234 / 255, blue: 112 / 255).opacity(0.55)
-    static let selected = Palette.volt
-    static let target = Color.black.opacity(0.22)
-    static let check = Palette.hazard.opacity(0.55)
+    static let surface = Color(red: 239 / 255, green: 239 / 255, blue: 237 / 255)
+    static let recessed = Color(red: 226 / 255, green: 226 / 255, blue: 224 / 255)
+    static let neutralButton = Color(red: 225 / 255, green: 225 / 255, blue: 223 / 255)
+    static let text = Color(red: 33 / 255, green: 33 / 255, blue: 35 / 255)
+    static let secondaryText = Color(red: 99 / 255, green: 99 / 255, blue: 103 / 255)
+    static let separator = Color.black.opacity(0.11)
+    static let blue = Color(red: 0 / 255, green: 122 / 255, blue: 255 / 255)
+    static let dangerFill = Color(red: 235 / 255, green: 220 / 255, blue: 217 / 255)
+    static let dangerText = Color(red: 132 / 255, green: 36 / 255, blue: 33 / 255)
 }
 
 struct ContentView: View {
@@ -31,195 +42,518 @@ struct ContentView: View {
         state.status == "playing" && state.position.turn == state.humanColor
     }
 
-    private var checkSquare: Int? {
-        guard state.status == "playing", state.position.inCheck else { return nil }
-        return state.position.kingSquare(state.position.turn)
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.s4) {
-            header
-            board
-            controls
-            if !state.history.isEmpty { movesPanel }
-            if let note = state.note {
-                Panel("Note from agent", trailing: AnyView(Badge("say", tone: .volt))) {
-                    Text(note).font(.jakarta(13, .medium)).foregroundStyle(Palette.fg)
-                        .textSelection(.enabled)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(Space.s5)
-        .frame(minWidth: 460, minHeight: 580)
-        .background(Palette.bg)
-        .sheet(isPresented: Binding(get: { promo != nil }, set: { if !$0 { promo = nil } })) { promoPicker }
-    }
-
-    // MARK: Header
-
-    private var header: some View {
-        HStack(spacing: Space.s3) {
-            RoundedRectangle(cornerRadius: Radius.inner, style: .continuous)
-                .fill(Palette.volt)
-                .frame(width: 26, height: 26)
-                .overlay(Text("♞").font(.system(size: 16)).foregroundStyle(Palette.space))
-            VStack(alignment: .leading, spacing: 1) {
-                Text(statusText).font(.jakarta(18, .bold)).tracking(-0.3).foregroundStyle(Palette.fg)
-                Text(subText).font(.jakarta(11, .regular)).foregroundStyle(Palette.fgDim)
-            }
-            Spacer()
-        }
-    }
-
-    private var statusText: String {
-        switch state.status {
-        case "idle": return "New game"
-        case "checkmate": return "Checkmate — \(colorName(state.winner ?? .w)) wins"
-        case "resigned": return "\(colorName(state.winner ?? .w)) wins"
-        case "stalemate": return "Stalemate — draw"
-        case "draw": return "Draw"
-        default: return "\(colorName(state.position.turn)) to move" + (state.position.inCheck ? " · Check" : "")
-        }
-    }
-
-    private var subText: String {
-        state.status == "playing"
-            ? "You: \(colorName(state.humanColor)) · agent: \(colorName(state.agentColor))"
-            : "Pick a side — the agent plays the other and responds via its CLI"
-    }
-
-    // MARK: Board
-
-    private var board: some View {
         GeometryReader { proxy in
-            let side = min(proxy.size.width, proxy.size.height)
-            let cell = side / 8
-            let ranks = orientationWhite ? Array((0..<8).reversed()) : Array(0..<8)
-            let files = orientationWhite ? Array(0..<8) : Array((0..<8).reversed())
+            let side = max(UI.minSide, proxy.size.width)
+
             VStack(spacing: 0) {
-                ForEach(ranks, id: \.self) { r in
-                    HStack(spacing: 0) {
-                        ForEach(files, id: \.self) { f in
-                            squareCell(r * 8 + f, cell: cell)
-                        }
-                    }
-                }
+                board(side: side)
+                controls(width: side)
             }
-            .frame(width: side, height: side)
-            .clipShape(RoundedRectangle(cornerRadius: Radius.nest, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: Radius.nest, style: .continuous).stroke(Palette.line, lineWidth: 1))
-            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(width: side, height: side + UI.controlsHeight, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(UI.surface)
         }
-        .aspectRatio(1, contentMode: .fit)
+        .frame(minWidth: UI.minSide, minHeight: UI.minSide + UI.controlsHeight)
+        .background(UI.surface)
+        .sheet(isPresented: Binding(get: { promo != nil }, set: { if !$0 { promo = nil } })) {
+            promoPicker
+        }
     }
 
-    private func squareCell(_ sq: Int, cell: CGFloat) -> some View {
-        let light = (fileOf(sq) + rankOf(sq)) % 2 == 1
+    private func board(side: CGFloat) -> some View {
+        let square = side / 8
+
+        return ZStack(alignment: .topLeading) {
+            boardSquares(side: side)
+
+            ForEach(0..<64, id: \.self) { displayIndex in
+                let row = displayIndex / 8
+                let column = displayIndex % 8
+                let sq = squareFor(row: row, column: column)
+
+                squareOverlay(sq, side: square)
+                    .position(
+                        x: CGFloat(column) * square + square / 2,
+                        y: CGFloat(row) * square + square / 2
+                    )
+            }
+
+            coordinateOverlay(side: side)
+        }
+        .frame(width: side, height: side)
+        .clipShape(boardShape)
+        .overlay {
+            boardShape.stroke(Color.black.opacity(0.12), lineWidth: 1)
+        }
+    }
+
+    private var boardShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            cornerRadii: RectangleCornerRadii(
+                topLeading: UI.outerRadius,
+                bottomLeading: 0,
+                bottomTrailing: 0,
+                topTrailing: UI.outerRadius
+            ),
+            style: .continuous
+        )
+    }
+
+    private var controlsShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            cornerRadii: RectangleCornerRadii(
+                topLeading: 0,
+                bottomLeading: UI.outerRadius,
+                bottomTrailing: UI.outerRadius,
+                topTrailing: 0
+            ),
+            style: .continuous
+        )
+    }
+
+    private func boardSquares(side: CGFloat) -> some View {
+        Canvas { context, size in
+            let square = size.width / 8
+
+            for row in 0..<8 {
+                for column in 0..<8 {
+                    let sq = squareFor(row: row, column: column)
+                    let light = (fileOf(sq) + rankOf(sq)) % 2 == 1
+                    let x0 = (CGFloat(column) * square).rounded(.toNearestOrAwayFromZero)
+                    let y0 = (CGFloat(row) * square).rounded(.toNearestOrAwayFromZero)
+                    let x1 = (CGFloat(column + 1) * square).rounded(.toNearestOrAwayFromZero)
+                    let y1 = (CGFloat(row + 1) * square).rounded(.toNearestOrAwayFromZero)
+
+                    context.fill(
+                        Path(CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)),
+                        with: .color(light ? UI.boardLight : UI.boardDark)
+                    )
+                }
+            }
+        }
+        .frame(width: side, height: side)
+        .allowsHitTesting(false)
+    }
+
+    private func squareOverlay(_ sq: Int, side: CGFloat) -> some View {
         let piece = state.position.board[sq]
+        let isSelected = selected == sq
         let isTarget = legalTargets.contains(sq)
         let isLast = state.lastMove.map { $0.from == sq || $0.to == sq } ?? false
+
         return ZStack {
-            Rectangle().fill(light ? Board.light : Board.dark)
-            if isLast { Board.lastMove }
-            if checkSquare == sq { Board.check }
-            if selected == sq { Rectangle().stroke(Board.selected, lineWidth: 3).padding(1.5) }
-            if isTarget {
-                if piece == nil {
-                    Circle().fill(Board.target).frame(width: cell * 0.28, height: cell * 0.28)
-                } else {
-                    Circle().stroke(Board.target, lineWidth: cell * 0.09).padding(cell * 0.06)
-                }
+            if isLast {
+                Rectangle().fill(UI.lastMove)
             }
+
             if let piece {
-                Text(pieceGlyph[piece.type] ?? "?")
-                    .font(.system(size: cell * 0.82))
-                    .foregroundStyle(piece.color == .w ? Color.white : Color(white: 0.10))
-                    .shadow(color: piece.color == .w ? .black.opacity(0.45) : .white.opacity(0.35), radius: 0.5)
+                PieceIcon(piece: piece, side: side)
+                    .frame(width: side, height: side)
+            }
+
+            if isTarget {
+                targetMark(occupied: piece != nil, side: side)
+            }
+
+            if isSelected {
+                Rectangle()
+                    .stroke(UI.selected, lineWidth: max(3, side * 0.045))
+                    .padding(2)
             }
         }
-        .frame(width: cell, height: cell)
+        .frame(width: side, height: side)
+        .clipped()
         .contentShape(Rectangle())
         .onTapGesture { tap(sq) }
     }
 
+    @ViewBuilder
+    private func targetMark(occupied: Bool, side: CGFloat) -> some View {
+        if occupied {
+            Circle()
+                .stroke(UI.target, lineWidth: side * 0.085)
+                .padding(side * 0.09)
+        } else {
+            Circle()
+                .fill(UI.target)
+                .frame(width: side * 0.25, height: side * 0.25)
+                .frame(width: side, height: side)
+        }
+    }
+
+    private func coordinateOverlay(side: CGFloat) -> some View {
+        let square = side / 8
+        let fontSize = max(10, square * 0.135)
+
+        return ZStack(alignment: .topLeading) {
+            ForEach(0..<64, id: \.self) { displayIndex in
+                let row = displayIndex / 8
+                let column = displayIndex % 8
+                let sq = squareFor(row: row, column: column)
+                let light = (fileOf(sq) + rankOf(sq)) % 2 == 1
+                let color = light ? UI.boardDark.opacity(0.90) : UI.boardLight.opacity(0.92)
+
+                if fileOf(sq) == (orientationWhite ? 0 : 7) {
+                    Text("\(rankOf(sq) + 1)")
+                        .font(.system(size: fontSize, weight: .bold, design: .rounded))
+                        .foregroundStyle(color)
+                        .fixedSize()
+                        .position(
+                            x: CGFloat(column) * square + 10,
+                            y: CGFloat(row) * square + 11
+                        )
+                }
+
+                if rankOf(sq) == (orientationWhite ? 0 : 7) {
+                    Text(fileLetter(fileOf(sq)))
+                        .font(.system(size: fontSize, weight: .bold, design: .rounded))
+                        .foregroundStyle(color)
+                        .fixedSize()
+                        .position(
+                            x: CGFloat(column + 1) * square - 10,
+                            y: CGFloat(row + 1) * square - 10
+                        )
+                }
+            }
+        }
+        .frame(width: side, height: side)
+        .allowsHitTesting(false)
+    }
+
+    private func squareFor(row: Int, column: Int) -> Int {
+        let rank = orientationWhite ? 7 - row : row
+        let file = orientationWhite ? column : 7 - column
+        return rank * 8 + file
+    }
+
     private func tap(_ sq: Int) {
         if let from = selected, legalTargets.contains(sq) {
-            if let p = state.position.board[from], p.type == .p, rankOf(sq) == 7 || rankOf(sq) == 0 {
-                promo = (from, sq); selected = nil; return
+            if let piece = state.position.board[from], piece.type == .p,
+               rankOf(sq) == 7 || rankOf(sq) == 0 {
+                promo = (from, sq)
+                selected = nil
+                return
             }
             try? state.move(from: from, to: sq, promo: nil, by: .user)
             selected = nil
             return
         }
-        if interactive, let p = state.position.board[sq], p.color == state.humanColor {
+
+        if interactive, let piece = state.position.board[sq], piece.color == state.humanColor {
             selected = sq
         } else {
             selected = nil
         }
     }
 
-    // MARK: Controls
+    private func controls(width: CGFloat) -> some View {
+        VStack(spacing: 16) {
+            HStack(spacing: 14) {
+                statusBlock
+                    .frame(width: 154, alignment: .leading)
 
-    private var controls: some View {
-        HStack(spacing: Space.s2) {
-            Button("Play White") { state.newGame(humanColor: .w); orientationWhite = true; selected = nil }
-                .buttonStyle(VoltButtonStyle())
-            Button("Play Black") { state.newGame(humanColor: .b); orientationWhite = false; selected = nil }
-                .buttonStyle(GhostButtonStyle())
-            Spacer()
-            Button { try? state.resign(state.humanColor, by: .user) } label: { Text("Resign") }
-                .buttonStyle(GhostButtonStyle())
-                .disabled(state.status != "playing")
-            Button { state.takeback(1); selected = nil } label: { Text("Takeback") }
-                .buttonStyle(GhostButtonStyle())
-                .disabled(state.history.isEmpty)
-            Button { orientationWhite.toggle() } label: { Text("⇅") }
-                .buttonStyle(GhostButtonStyle())
+                Rectangle()
+                    .fill(UI.separator)
+                    .frame(width: 1, height: 44)
+
+                HStack(spacing: 8) {
+                    actionButton("Play White", width: 100, tone: .primary) {
+                        state.newGame(humanColor: .w)
+                        orientationWhite = true
+                    }
+                    actionButton("Play Black", width: 100, tone: .neutral) {
+                        state.newGame(humanColor: .b)
+                        orientationWhite = false
+                    }
+                    actionButton("Takeback", width: 92, tone: .neutral, disabled: state.history.isEmpty) {
+                        state.takeback(1)
+                    }
+                    actionButton("Resign", width: 76, tone: .danger, disabled: state.status != "playing") {
+                        try? state.resign(state.humanColor, by: .user)
+                    }
+                    Button {
+                        orientationWhite.toggle()
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 40, height: UI.buttonHeight)
+                    }
+                    .buttonStyle(ArfButtonStyle(tone: .neutral, disabled: false))
+                    .help("Flip board")
+                }
+                .fixedSize(horizontal: true, vertical: false)
+
+                Spacer(minLength: 0)
+            }
+            .frame(height: 48)
+
+            HStack(spacing: 14) {
+                Text("Moves")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(UI.secondaryText)
+                    .frame(width: 64, alignment: .leading)
+                movesRail
+            }
+            .frame(height: 42)
+        }
+        .padding(.top, 14)
+        .padding(.horizontal, UI.controlPadding)
+        .frame(width: width, height: UI.controlsHeight, alignment: .top)
+        .background(controlsShape.fill(UI.surface))
+        .clipShape(controlsShape)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(UI.separator)
+                .frame(height: 1)
         }
     }
 
-    private var movesPanel: some View {
-        Panel("Moves") {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(movePairs, id: \.0) { n, w, b in
-                        HStack(spacing: Space.s3) {
-                            Text("\(n).").foregroundStyle(Palette.fgMute).frame(width: 26, alignment: .trailing)
-                            Text(w).foregroundStyle(Palette.fg).frame(width: 64, alignment: .leading)
-                            Text(b).foregroundStyle(Palette.fg).frame(width: 64, alignment: .leading)
-                        }.font(.jakarta(12, .medium)).monospacedDigit()
+    private var statusBlock: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(statusText)
+                .font(.system(size: 19, weight: .semibold, design: .rounded))
+                .foregroundStyle(UI.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+
+            Text(colorSummary)
+                .font(.system(size: 13, weight: .medium, design: .rounded))
+                .foregroundStyle(UI.secondaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+        }
+    }
+
+    private func actionButton(
+        _ title: String,
+        width: CGFloat,
+        tone: ArfButtonStyle.Tone,
+        disabled: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 14.5, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+                .minimumScaleFactor(0.86)
+                .frame(width: width, height: UI.buttonHeight)
+        }
+        .buttonStyle(ArfButtonStyle(tone: tone, disabled: disabled))
+        .disabled(disabled)
+    }
+
+    private var movesRail: some View {
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: 7) {
+                if movePairs.isEmpty {
+                    Text("No moves yet")
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .foregroundStyle(UI.secondaryText)
+                        .frame(height: 34)
+                } else {
+                    ForEach(movePairs, id: \.0) { number, white, black in
+                        HStack(spacing: 7) {
+                            Text("\(number).")
+                                .foregroundStyle(UI.secondaryText)
+                            Text(white.isEmpty ? "..." : white)
+                                .foregroundStyle(UI.text)
+                            if !black.isEmpty {
+                                Text(black)
+                                    .foregroundStyle(UI.text)
+                            }
+                        }
+                        .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                        .lineLimit(1)
+                        .padding(.horizontal, 10)
+                        .frame(height: 34)
+                        .background(UI.recessed)
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                     }
                 }
-            }.frame(maxHeight: 120)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .scrollIndicators(.hidden)
+        .frame(height: 40)
+        .padding(.horizontal, 12)
+        .background(UI.recessed.opacity(0.64))
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
     }
 
     private var promoPicker: some View {
-        VStack(spacing: Space.s4) {
-            Eyebrow("Promote to")
-            HStack(spacing: Space.s3) {
-                ForEach([PieceType.q, .r, .b, .n], id: \.self) { t in
-                    Button {
-                        if let pr = promo { try? state.move(from: pr.from, to: pr.to, promo: t, by: .user) }
-                        promo = nil
-                    } label: {
-                        Text(pieceGlyph[t] ?? "?").font(.system(size: 30)).foregroundStyle(Palette.fg)
-                    }.buttonStyle(GhostButtonStyle())
+        HStack(spacing: 16) {
+            ForEach([PieceType.q, .r, .b, .n], id: \.self) { type in
+                Button {
+                    if let promo {
+                        try? state.move(from: promo.from, to: promo.to, promo: type, by: .user)
+                    }
+                    promo = nil
+                } label: {
+                    PieceIcon(piece: Piece(color: state.humanColor, type: type), side: 68)
+                        .frame(width: 76, height: 76)
+                        .background(UI.recessed)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
+                .buttonStyle(.plain)
             }
-        }.padding(Space.s5).background(Palette.panel)
+        }
+        .padding(24)
+        .background(UI.surface)
+    }
+
+    private var statusText: String {
+        switch state.status {
+        case "idle": return "Start a game"
+        case "checkmate": return "Checkmate: \(colorName(state.winner ?? .w)) wins"
+        case "resigned": return "\(colorName(state.winner ?? .w)) wins"
+        case "stalemate": return "Stalemate"
+        case "draw": return "Draw"
+        default:
+            return "\(colorName(state.position.turn)) to move" + (state.position.inCheck ? " - check" : "")
+        }
+    }
+
+    private var colorSummary: String {
+        state.status == "idle"
+            ? "Choose your side"
+            : "You: \(colorName(state.humanColor))   Agent: \(colorName(state.agentColor))"
     }
 
     private var movePairs: [(Int, String, String)] {
         var pairs: [(Int, String, String)] = []
-        for (i, m) in state.history.enumerated() {
-            let idx = i / 2
-            if idx >= pairs.count { pairs.append((idx + 1, "", "")) }
-            if m.color == "w" { pairs[idx].1 = m.san } else { pairs[idx].2 = m.san }
+        for (index, move) in state.history.enumerated() {
+            let pairIndex = index / 2
+            if pairIndex >= pairs.count { pairs.append((pairIndex + 1, "", "")) }
+            if move.color == "w" {
+                pairs[pairIndex].1 = move.san
+            } else {
+                pairs[pairIndex].2 = move.san
+            }
         }
         return pairs
     }
 
-    private func colorName(_ c: Side) -> String { c == .w ? "White" : "Black" }
+    private func colorName(_ color: Side) -> String {
+        color == .w ? "White" : "Black"
+    }
+
+    private func fileLetter(_ file: Int) -> String {
+        String(UnicodeScalar(UInt8(ascii: "a") + UInt8(file)))
+    }
+}
+
+private struct ArfButtonStyle: ButtonStyle {
+    enum Tone { case primary, neutral, danger }
+
+    let tone: Tone
+    let disabled: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(foreground)
+            .background {
+                RoundedRectangle(cornerRadius: UI.buttonRadius, style: .continuous)
+                    .fill(background(configuration.isPressed))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: UI.buttonRadius, style: .continuous)
+                    .stroke(border, lineWidth: 1)
+            }
+            .opacity(disabled ? 0.44 : 1)
+            .scaleEffect(configuration.isPressed && !disabled ? 0.985 : 1)
+            .contentShape(RoundedRectangle(cornerRadius: UI.buttonRadius, style: .continuous))
+    }
+
+    private var foreground: Color {
+        switch tone {
+        case .primary: return .white
+        case .neutral: return UI.text
+        case .danger: return UI.dangerText
+        }
+    }
+
+    private var border: Color {
+        switch tone {
+        case .primary: return Color.white.opacity(0.20)
+        case .neutral: return Color.black.opacity(0.06)
+        case .danger: return Color(red: 180 / 255, green: 82 / 255, blue: 76 / 255).opacity(0.12)
+        }
+    }
+
+    private func background(_ pressed: Bool) -> Color {
+        let base: Color
+        switch tone {
+        case .primary: base = UI.blue
+        case .neutral: base = UI.neutralButton
+        case .danger: base = UI.dangerFill
+        }
+        return pressed && !disabled ? base.opacity(0.76) : base
+    }
+}
+
+private struct PieceIcon: View {
+    let piece: Piece
+    let side: CGFloat
+
+    var body: some View {
+        if let image = PieceArt.image(for: piece) {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: side * UI.pieceScale, height: side * UI.pieceScale)
+                .offset(y: side * 0.015)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        } else {
+            Text(PieceArt.fallback(for: piece))
+                .font(.system(size: side * 0.88, weight: .regular))
+                .foregroundStyle(piece.color == .w ? Color.white : Color.black)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+private enum PieceArt {
+    private static let cache = NSCache<NSString, NSImage>()
+
+    static func image(for piece: Piece) -> NSImage? {
+        let name = assetName(for: piece)
+        if let cached = cache.object(forKey: name as NSString) { return cached }
+        let url = Bundle.module.url(
+            forResource: name,
+            withExtension: "png",
+            subdirectory: "pieces/cburnett"
+        ) ?? Bundle.module.url(forResource: name, withExtension: "png")
+        guard let url, let image = NSImage(contentsOf: url) else {
+            return nil
+        }
+        cache.setObject(image, forKey: name as NSString)
+        return image
+    }
+
+    static func fallback(for piece: Piece) -> String {
+        switch piece.type {
+        case .k: return piece.color == .w ? "♔" : "♚"
+        case .q: return piece.color == .w ? "♕" : "♛"
+        case .r: return piece.color == .w ? "♖" : "♜"
+        case .b: return piece.color == .w ? "♗" : "♝"
+        case .n: return piece.color == .w ? "♘" : "♞"
+        case .p: return piece.color == .w ? "♙" : "♟"
+        }
+    }
+
+    private static func assetName(for piece: Piece) -> String {
+        let color = piece.color == .w ? "w" : "b"
+        switch piece.type {
+        case .k: return "\(color)K"
+        case .q: return "\(color)Q"
+        case .r: return "\(color)R"
+        case .b: return "\(color)B"
+        case .n: return "\(color)N"
+        case .p: return "\(color)P"
+        }
+    }
 }

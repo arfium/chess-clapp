@@ -61,14 +61,25 @@ bin/chess move e2e4                  # (as the side to move) make a move
 bin/chess help                       # the agent's manual
 ```
 
-Run it the real way (through Clatch) and hand it to an agent:
+### Install it for real (end users)
+
+No source checkout — install from a published GitHub release:
 
 ```sh
-clatch install dist
+clatch install github:arfium/chess-clapp          # latest release
+clatch install github:arfium/chess-clapp@v0.1.0   # a specific version
+```
+
+(Or download `com.arfium.chess-macos-arm64.clapp` from the repo's **Releases** and
+`clatch install <that file>`.) Then hand it to an agent:
+
+```sh
 clatch run com.arfium.chess
 clatch agent grant <agent-name> app:com.arfium.chess
 clatch agent send <agent-name> "you're playing chess with me — check chess --help, then respond to my moves"
 ```
+
+(Dev-from-source path: `clatch install dist` after `npm run package`.)
 
 | command | does |
 |---|---|

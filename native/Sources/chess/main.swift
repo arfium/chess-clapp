@@ -80,7 +80,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var window: NSWindow?
 
     func applicationDidFinishLaunching(_ note: Notification) {
-        Fonts.register()  // Clatch design-system typeface (Theme.swift)
         let wiredByClatch = ProcessInfo.processInfo.environment["CLATCH_INSTANCE_TOKEN"] != nil
 
         let socketServer = SocketServer(path: SocketPath.path) { [weak self] req in
@@ -126,13 +125,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 680),
+            contentRect: NSRect(x: 0, y: 0, width: 680, height: 828),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
         win.title = AppInfo.cli
-        win.contentMinSize = NSSize(width: 480, height: 600)
-        win.appearance = NSAppearance(named: .darkAqua)
-        win.backgroundColor = Palette.nsBg
+        win.contentMinSize = NSSize(width: 680, height: 828)
         win.contentView = NSHostingView(rootView: ContentView(state: state))
         win.center()
         win.makeKeyAndOrderFront(nil)

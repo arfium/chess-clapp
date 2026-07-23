@@ -53,7 +53,7 @@ the agent can also read the truth via `chess board`.
 
 | generic transport + design (keep as-is) | the chess app |
 |---|---|
-| `Bootstrap`, `ControlPipe`, `IPC`, `Theme`, `Resources/fonts` | `Chess` (engine), `AppState` (the game), `ContentView` (the board GUI), `Protocol` (wire shape), `main` (the verbs), `AppInfo` (identity) |
+| `Bootstrap`, `ControlPipe`, `IPC`, `Resources/pieces` | `Chess` (engine), `AppState` (the game), `ContentView` (the board GUI), `Protocol` (wire shape), `main` (the verbs), `AppInfo` (identity) |
 
 ## Conventions & gotchas
 
@@ -62,8 +62,9 @@ the agent can also read the truth via `chess board`.
   actor's color or isn't its turn. The GUI is the human; the socket is the agent.
 - **Sandbox-aware CLI errors** (in `IPC.swift`): `ENOENT`/`ECONNREFUSED` → "app is
   not running"; `EPERM`/`EACCES` → "blocked by the sandbox".
-- **Style with `Theme.swift`** (Clatch Phosphor design system) for the chrome; the
-  board keeps its own green/cream.
+- **The board** (`ContentView`) renders cburnett **PNG** pieces
+  (`Resources/pieces/cburnett`, `PieceArt` with a Unicode fallback) on a
+  lichess-style green/cream board with a light native control bar.
 - The **frozen, normative** contract (manifest + control pipe) is
   [docs/protocol.md](docs/protocol.md) — The Clapp Protocol. Protocol wins. (Clatch's
   own [`reference/`](https://github.com/arfium/clatch) specs cover launcher internals.)

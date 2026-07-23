@@ -13,8 +13,17 @@ bumps may break (SemVer 0.x rules).
   and `app.toAgentRefused {id, agent, reason}`; framing is fail-fast; a wired app
   exits when the pipe drops. `connector.signals` are `{id, type}`. `ControlPipe.swift`
   is the template's final transport verbatim.
+- **The board is now ArfChess's** — cburnett **PNG** pieces on a lichess-style
+  green/cream Canvas board with a light native control bar (`ContentView` ported from
+  ArfChess's `BoardView`, `PieceArt` loader with a Unicode fallback). Replaces the
+  Unicode-glyph board; the Clatch Phosphor theme (`Theme.swift`) and the Plus Jakarta
+  Sans fonts are dropped (the app is self-styled, like ArfChess).
 
 ### Added
+- **Release workflow** (`.github/workflows/release.yml`): pushing a `v*` tag builds
+  the host `<id>-macos-arm64.clapp` depot + a `.sha256` and publishes them as a GitHub
+  Release, so end users install with `clatch install github:arfium/chess-clapp[@vX]`
+  (no source checkout).
 - **`position` signal** (declared `buffered`): after **every** move — human or agent —
   the live board (FEN) rides the agent's chat buffer, so a "best move?" prompt arrives
   with the current position attached. This is the third signal type end to end
