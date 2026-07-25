@@ -37,6 +37,7 @@ struct StateDTO: Codable {
     var moves: [MoveDTO]
     var lastMove: [String: String]?  // {from,to,san}
     var coach: String?
+    var chaos: Bool                  // illegal moves allowed (legality/check not enforced)
 }
 
 struct Response: Codable {

@@ -7,10 +7,12 @@ import Combine
 
 enum Actor { case user, agent }
 
-/// Who occupies one side of the board. Chess has two seats — White and Black — and
-/// each is either the human at this window or a specific agent from the roster. This
-/// is what lets any pairing play: you-vs-agent, agent-vs-agent, or hotseat you-vs-you.
+/// Who occupies one side of the board. Chess has two seats — White and Black. A seat
+/// starts **empty** and the human fills it from the window: the human themselves, or a
+/// specific agent from the roster. This is what lets any pairing play: you-vs-agent,
+/// agent-vs-agent, or hotseat you-vs-you. A game can't start until both seats are filled.
 enum Seat: Equatable {
+    case empty
     case human
     case agent(String)   // an agent's IMMUTABLE id (the wire key), never its display name
 }
@@ -35,13 +37,20 @@ final class Game: ObservableObject {
     @Published private(set) var lastMove: (from: Int, to: Int)? = nil
     @Published private(set) var coach: String? = nil
 
-    // The two seats + the agents that can fill them.
-    @Published private(set) var whiteSeat: Seat = .human
-    @Published private(set) var blackSeat: Seat = .human
+    // The two seats + the agents that can fill them. Both start EMPTY: the human fills
+    // each side deliberately (You, or an agent), and a game can't start until both are.
+    @Published private(set) var whiteSeat: Seat = .empty
+    @Published private(set) var blackSeat: Seat = .empty
     @Published private(set) var agents: [AgentRow] = []
-    /// Once the human touches a seat picker we stop auto-seating the opponent, so a
-    /// roster change never overrides a deliberate choice.
-    private var seatsCustomized = false
+    /// Chaos toggle (default OFF): when on, the side to move may move any of its pieces
+    /// to any square — legality and check are not enforced. Off = strict chess.
+    @Published var allowIllegal = false
+
+    /// Both seats filled — the precondition for starting a game.
+    var seatsReady: Bool { whiteSeat != .empty && blackSeat != .empty }
+    /// Is the human sitting at either side? Decides Resign (you're playing) vs
+    /// End Game (you're only watching two agents).
+    var hasHuman: Bool { whiteSeat == .human || blackSeat == .human }
 
     // Past positions for takeback.
     private var stack: [Position] = []
@@ -63,7 +72,6 @@ final class Game: ObservableObject {
     /// an agent onto the side that must move right now, wakes it — so mid-game seat
     /// changes take effect immediately (including starting an agent-vs-agent loop).
     func chooseSeat(_ side: Side, _ seat: Seat) {
-        seatsCustomized = true
         if side == .w { whiteSeat = seat } else { blackSeat = seat }
         // Only wake when an agent is dropped onto the side that must move right now
         // (e.g. handing the current turn to an agent, or replacing one that went
@@ -71,25 +79,19 @@ final class Game: ObservableObject {
         if status == "playing", side == position.turn { kickToMove() }
     }
 
-    /// Replace the roster (a full snapshot pushed by Clatch on every change). Until the
-    /// human customizes seats, keep the classic out-of-box pairing — you (White) vs your
-    /// agent (Black) — pointed at a live agent, so a fresh install "just works".
+    /// Replace the roster (a full snapshot pushed by Clatch on every change). Seats are
+    /// never auto-filled — the human chooses — so this only refreshes the pickable list
+    /// and the names/avatars shown for already-seated agents.
     func setAgents(_ rows: [AgentRow]) {
         agents = rows
-        guard !seatsCustomized, let first = rows.first else { return }
-        switch blackSeat {
-        case .human:
-            blackSeat = .agent(first.id)
-        case .agent(let id):
-            if !rows.contains(where: { $0.id == id }) { blackSeat = .agent(first.id) }
-        }
     }
 
     func agent(forId id: String) -> AgentRow? { agents.first { $0.id == id } }
 
-    /// A human display label for a seat ("You" / an agent's name / "Agent" if offline).
+    /// A human display label for a seat ("Choose player" / "You" / an agent's name).
     func playerLabel(_ side: Side) -> String {
         switch seat(for: side) {
+        case .empty: return "Choose player"
         case .human: return "You"
         case .agent(let id): return agent(forId: id)?.name ?? "Agent"
         }
@@ -98,8 +100,9 @@ final class Game: ObservableObject {
     // MARK: Commands
 
     func newGame(white: Seat? = nil, black: Seat? = nil) {
-        if let white { whiteSeat = white; seatsCustomized = true }
-        if let black { blackSeat = black; seatsCustomized = true }
+        if let white { whiteSeat = white }
+        if let black { blackSeat = black }
+        guard seatsReady else { return }   // both sides must be filled first
         position = .start
         history = []
         stack = []
@@ -110,6 +113,16 @@ final class Game: ObservableObject {
         coach = nil
         lastSan = ""
         kickToMove()   // if White is an agent, start it thinking
+    }
+
+    /// Stop a game with no winner — the human's "End Game" while two agents play (or any
+    /// abort). Distinct from `resign`, which awards the win to the other side.
+    func endGame() {
+        guard status == "playing" else { return }
+        status = "ended"
+        winner = nil
+        result = nil
+        onSignal?("game.over", [], ["status": status])
     }
 
     enum MoveError: Error, CustomStringConvertible {
@@ -132,24 +145,42 @@ final class Game: ObservableObject {
         // standalone dev hatch (no CLATCH_AGENT_ID) may move either side.
         switch (actor, seat(for: mover)) {
         case (.user, .human): break
-        case (.user, .agent): throw MoveError.notYourTurn
+        case (.user, .agent), (.user, .empty): throw MoveError.notYourTurn
         case (.agent, .agent(let id)): if let c = callerId, c != id { throw MoveError.notYourTurn }
-        case (.agent, .human): if callerId != nil { throw MoveError.notYourTurn }
+        case (.agent, .human), (.agent, .empty): if callerId != nil { throw MoveError.notYourTurn }
         }
 
-        let legal = position.legalMoves(from: from).filter { $0.to == to }
-        guard !legal.isEmpty else { throw MoveError.illegal }
-        // Pick the matching move (resolve promotion).
+        // Resolve the move. Strict mode (default) requires a legal move; chaos mode
+        // (allowIllegal) accepts any of the mover's pieces to any square.
         let chosen: Move
-        if let promo = promo, let m = legal.first(where: { $0.promotion == promo }) {
-            chosen = m
-        } else if let m = legal.first(where: { $0.promotion == nil }) {
-            chosen = m
+        let san: String
+        if allowIllegal {
+            guard let piece = position.board[from], piece.color == mover, from != to else {
+                throw MoveError.illegal
+            }
+            // Prefer a real legal move (so castling/en-passant/SAN stay correct);
+            // otherwise a raw teleport of this piece.
+            if let legal = position.legalMoves(from: from).first(where: { $0.to == to
+                    && (promo == nil || $0.promotion == promo || $0.promotion == nil) }) {
+                chosen = legal
+                san = position.san(for: chosen)
+            } else {
+                chosen = Move(from: from, to: to, promotion: promo)
+                san = rawSAN(piece: piece, from: from, to: to, promo: promo)
+            }
         } else {
-            chosen = legal.first(where: { $0.promotion == .q }) ?? legal[0]
+            let legal = position.legalMoves(from: from).filter { $0.to == to }
+            guard !legal.isEmpty else { throw MoveError.illegal }
+            if let promo = promo, let m = legal.first(where: { $0.promotion == promo }) {
+                chosen = m
+            } else if let m = legal.first(where: { $0.promotion == nil }) {
+                chosen = m
+            } else {
+                chosen = legal.first(where: { $0.promotion == .q }) ?? legal[0]
+            }
+            san = position.san(for: chosen)
         }
 
-        let san = position.san(for: chosen)
         let ply = history.count + 1
         let movingColor = position.turn
         stack.append(position)
@@ -188,6 +219,14 @@ final class Game: ObservableObject {
     }
 
     private func updateStatusAfterMove(mover: Side) {
+        // Chaos mode can capture a king outright — that, and only that, ends such a game
+        // (normal mate/stalemate detection assumes a legal position, so we skip it).
+        if position.kingSquare(mover.other) == nil {
+            status = "checkmate"; winner = mover
+            result = mover == .w ? "1-0" : "0-1"
+            return
+        }
+        if allowIllegal { status = "playing"; return }
         switch position.outcome {
         case .checkmate:
             status = "checkmate"; winner = mover
@@ -199,6 +238,14 @@ final class Game: ObservableObject {
         case .ongoing:
             status = "playing"
         }
+    }
+
+    /// A compact label for a raw (illegal) move, distinct from real SAN.
+    private func rawSAN(piece: Piece, from: Int, to: Int, promo: PieceType?) -> String {
+        let prefix = piece.type == .p ? "" : piece.type.rawValue.uppercased()
+        var s = "\(prefix)\(squareName(from))→\(squareName(to))"
+        if let promo { s += "=" + promo.rawValue.uppercased() }
+        return s
     }
 
     func resign(_ color: Side, by actor: Actor) throws {
@@ -256,7 +303,8 @@ final class Game: ObservableObject {
             ascii: ascii(),
             moves: history,
             lastMove: history.last.map { ["from": $0.from, "to": $0.to, "san": $0.san] },
-            coach: coach
+            coach: coach,
+            chaos: allowIllegal
         )
         if status == "idle" { dto.inCheck = false }
         return dto
@@ -272,8 +320,9 @@ final class Game: ObservableObject {
     // MARK: Preview (offscreen render only)
 
     /// Seed a representative state for `chess render` — no Clatch, no display needed.
-    /// Shows the headline pairing (agent vs agent) mid-opening, with one real avatar
-    /// (a bundled image, exercising the photo path) and one monogram fallback.
+    /// `kind`: "empty" (unseated, idle) · "solo" (you vs agent) · "vs" (agent vs agent)
+    /// · "chaos" (agent vs agent, illegal moves on). One agent carries a real avatar
+    /// (a bundled image, exercising the photo path); the other falls back to a monogram.
     func applyPreview(_ kind: String) {
         let photo = Bundle.module.url(forResource: "appicon", withExtension: "png")?.path
         agents = [
@@ -282,12 +331,15 @@ final class Game: ObservableObject {
             AgentRow(id: "a2", name: "Nova", backend: "gemini-acp",
                      model: "gemini-2.5-pro", avatarPath: nil),
         ]
-        seatsCustomized = true
-        if kind == "solo" {
-            whiteSeat = .human; blackSeat = .agent("a1")
-        } else {
-            whiteSeat = .agent("a1"); blackSeat = .agent("a2")
+        if kind == "empty" {
+            whiteSeat = .empty; blackSeat = .empty
+            status = "idle"; return
         }
+        switch kind {
+        case "solo": whiteSeat = .human;        blackSeat = .agent("a1")
+        default:     whiteSeat = .agent("a1");  blackSeat = .agent("a2")
+        }
+        allowIllegal = (kind == "chaos")
         status = "playing"; result = nil; winner = nil
         position = .start; history = []; stack = []
         for uci in ["e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6"] {
@@ -298,6 +350,15 @@ final class Game: ObservableObject {
             history.append(MoveDTO(ply: history.count + 1, color: mc.rawValue, san: san,
                                    from: squareName(f), to: squareName(t)))
             stack.append(position); position = position.make(m); lastMove = (f, t); lastSan = san
+        }
+        if kind == "chaos" {   // one flagrantly illegal teleport, to show the label
+            if let f = parseSquare("b1"), let t = parseSquare("h7"), let p = position.board[f] {
+                let san = "\(p.type.rawValue.uppercased())\(squareName(f))→\(squareName(t))"
+                history.append(MoveDTO(ply: history.count + 1, color: position.turn.rawValue,
+                                       san: san, from: squareName(f), to: squareName(t)))
+                stack.append(position); position = position.make(Move(from: f, to: t))
+                lastMove = (f, t); lastSan = san
+            }
         }
     }
 

@@ -60,11 +60,16 @@ always read the truth via `chess board`.
 ## Conventions & gotchas
 
 - **macOS only.** `launch` has no cross-OS fallback; a Swift executable is macOS.
-- **Seats + ownership, server-side:** each side is a `Seat` (`.human` or
-  `.agent(id)`), filled from the player strips. `Game.move(by:callerId:)` lets a side
-  be moved only by its occupant — a real agent (its `CLATCH_AGENT_ID`) is held to its
-  own seat; the standalone dev hatch (no id) may move either side. Roster + avatars
-  arrive on the control pipe's `app.agents` push (`Game.setAgents`).
+- **Seats + ownership, server-side:** each side is a `Seat` (`.empty` | `.human` |
+  `.agent(id)`), filled from the player strips. Both start **empty**; a game can't start
+  until both are filled (`seatsReady`). `Game.move(by:callerId:)` lets a side be moved
+  only by its occupant — a real agent (its `CLATCH_AGENT_ID`) is held to its own seat;
+  the standalone dev hatch (no id) may move either side. Roster + avatars arrive on the
+  control pipe's `app.agents` push (`Game.setAgents`).
+- **Chaos toggle** (`Game.allowIllegal`, default off): a GUI switch. When on, `move`
+  skips legality/check (any of the mover's pieces to any square; a captured king wins)
+  and `StateDTO.chaos` is true so `board` warns. Seat ownership is still enforced.
+  `endGame()` stops a game with no winner (the human's *End Game* while agents play).
 - **Sandbox-aware CLI errors** (in `IPC.swift`): `ENOENT`/`ECONNREFUSED` → "app is
   not running"; `EPERM`/`EACCES` → "blocked by the sandbox".
 - **The board** (`BoardView`) renders cburnett **PNG** pieces

@@ -17,6 +17,17 @@ bumps may break (SemVer 0.x rules).
   reports the caller's own color. The window is a little smaller to make room for the
   strips. New: `Seat`/`AgentRow` in `Game`, `Game.setAgents` fed from `onAgents`, and
   a `chess render` subcommand for offscreen GUI previews.
+  - Seats **start empty** (a dashed "Choose player" placeholder — no phantom "You"),
+    and *New Game* stays disabled until both are filled.
+  - **End Game** replaces **Resign** when no human is seated (you're watching two
+    agents) — it stops the game with no winner (`Game.endGame`, status `ended`).
+  - **Allow illegal moves** — a switch, **off by default**. On, the side to move may
+    send any piece to any square (legality/check ignored; capturing a king wins);
+    `StateDTO.chaos` surfaces it to the CLI. Strict chess remains the default.
+  - **UI redesign** to expert standards: one 20pt gutter so every row aligns, a single
+    restrained accent, a clear side-to-move highlight, robust no-photo avatar fallbacks
+    (monogram / person / dashed-empty), and native controls — a `Toggle(.switch)` for
+    chaos and a `Picker(.segmented)` for board perspective (View: White / Black).
 
 ### Changed
 - **Adopt the frozen Clapp Protocol** ([docs/protocol.md](docs/protocol.md)). The

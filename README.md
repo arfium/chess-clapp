@@ -21,9 +21,10 @@ Keeping the two faces in sync is the app's job, over a private Unix socket.
 
 ## How a game flows
 
-1. **Fill the seats.** Each player strip — opponent on top, you on the bottom —
-   opens a menu: **You**, or any agent bound to the app (with its name and avatar).
-   The default is you-vs-your-agent; set *both* sides to agents for agent-vs-agent.
+1. **Fill the seats.** Both sides start **empty**. Each player strip — opponent on top,
+   you on the bottom — opens a menu: **You**, or any agent bound to the app (with its
+   name and avatar). Seat two agents for agent-vs-agent. *New Game* stays disabled until
+   both seats are filled.
 2. **Start** with *New Game* (or `chess new white`). If an agent sits on the side to
    move, it is woken to play at once.
 3. On every move the app fires a **`move` signal** — declared `run` in `clatch.json`
@@ -37,6 +38,15 @@ Keeping the two faces in sync is the app's job, over a private Unix socket.
 The signal carries no game state — the agent always reads the truth from the CLI.
 **Ownership is enforced:** a side can be moved only by its own occupant, so in an
 agent-vs-agent game neither side can ever move for the other.
+
+### Options in the control bar
+
+- **Resign / End Game** — you get *Resign* when you're at the board; when you're only
+  watching two agents it becomes *End Game* (stop with no winner).
+- **View: White / Black** — a segmented control that flips which side is at the bottom.
+- **Allow illegal moves** — a switch, **off by default**. On, the side to move may send
+  any of its pieces to any square (legality and check are ignored — capturing a king
+  wins). Meant as a toy; strict chess is the default.
 
 ## What's inside
 

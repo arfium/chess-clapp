@@ -30,6 +30,7 @@ func printState(_ st: StateDTO) {
     case "resigned": print("\(colorWord(st.winner ?? "w")) wins by resignation (\(st.result ?? ""))")
     case "stalemate": print("stalemate — draw")
     case "draw": print("draw")
+    case "ended": print("game ended")
     default: print("\(colorWord(st.turn)) to move" + (st.inCheck ? " — CHECK" : ""))
     }
     if !st.moves.isEmpty {
@@ -45,6 +46,7 @@ func printState(_ st: StateDTO) {
         if let yc = st.yourColor { line += "   (you are \(colorWord(yc)))" }
         print(line)
     }
+    if st.chaos { print("⚠ chaos mode: illegal moves are allowed (rules & check off)") }
     if let coach = st.coach, !coach.isEmpty { print("note: \(coach)") }
 }
 
@@ -182,9 +184,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return Response(ok: true, state: game.snapshot(callerId: req.agent))
         case "new":
             let human = parseColor(req.color)
-            // The human takes the requested color; the calling agent takes the other
-            // side (standalone with no agent id keeps that side's current occupant).
-            let opponent: Seat = req.agent.map { .agent($0) } ?? game.seat(for: human.other)
+            // The human takes the requested color; the calling agent takes the other side.
+            // Standalone (no agent id) keeps that side's current occupant, or falls back
+            // to a second human (hotseat) so a CLI-started game always has both seats.
+            let existing = game.seat(for: human.other)
+            let opponent: Seat = req.agent.map { .agent($0) } ?? (existing == .empty ? .human : existing)
             game.newGame(white: human == .w ? .human : opponent,
                          black: human == .b ? .human : opponent)
             return Response(ok: true, state: game.snapshot(callerId: req.agent))
