@@ -81,6 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var window: NSWindow?
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        setDockIcon()   // a bare executable shows the generic terminal icon otherwise
         let wiredByClatch = ProcessInfo.processInfo.environment["CLATCH_INSTANCE_TOKEN"] != nil
 
         let socketServer = SocketServer(path: SocketPath.path) { [weak self] req in
@@ -142,6 +143,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
     func applicationWillTerminate(_ note: Notification) { server?.stop() }
+
+    /// Give the Dock the app's own icon — a bare Swift executable has none, so macOS
+    /// falls back to the generic terminal icon. The pawn mark is bundled as a resource.
+    private func setDockIcon() {
+        if let url = Bundle.module.url(forResource: "appicon", withExtension: "png"),
+           let icon = NSImage(contentsOf: url) {
+            NSApp.applicationIconImage = icon
+        }
+    }
 
     func handle(_ req: Request) -> Response {
         switch req.cmd {
