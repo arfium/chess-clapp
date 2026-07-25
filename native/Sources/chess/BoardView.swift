@@ -1,23 +1,22 @@
 import AppKit
 import SwiftUI
 
-/// Window sizing, shared with `main.swift` (the NSWindow) and the offscreen renderer,
-/// so all three agree on one geometry. Two player strips sandwich the board; the
-/// controls sit beneath. The board is the window's width, squared.
+/// Window sizing, shared with `main.swift` (the NSWindow) and the offscreen renderer.
+/// One `gutter` insets the board AND every row, so the board's left edge, the avatars,
+/// the status text and the buttons all sit on a single column. Compact by intent.
 enum BoardMetrics {
-    static let minSide: CGFloat = 520
-    static let stripHeight: CGFloat = 62
-    static let controlsHeight: CGFloat = 152
-    static var minWidth: CGFloat { minSide }
-    static var minHeight: CGFloat { minSide + stripHeight * 2 + controlsHeight }
+    static let gutter: CGFloat = 16
+    static let minWidth: CGFloat = 452
+    static let stripHeight: CGFloat = 52
+    static let controlsHeight: CGFloat = 128
+    static func boardSide(for width: CGFloat) -> CGFloat { width - gutter * 2 }
+    static var minHeight: CGFloat { boardSide(for: minWidth) + stripHeight * 2 + controlsHeight }
 }
 
 private enum UI {
-    /// One gutter for every row (strips, status, buttons, options) so all left/right
-    /// edges line up. Alignment is the cheapest way to look considered.
-    static let edge: CGFloat = 20
-    static let buttonRadius: CGFloat = 9
-    static let buttonHeight: CGFloat = 34
+    static let gutter = BoardMetrics.gutter
+    static let buttonRadius: CGFloat = 8
+    static let buttonHeight: CGFloat = 30
     static let pieceScale: CGFloat = 0.94
 
     static let boardLight = Color(red: 236 / 255, green: 237 / 255, blue: 208 / 255)
@@ -26,33 +25,34 @@ private enum UI {
     static let lastMove = Color(red: 246 / 255, green: 210 / 255, blue: 76 / 255).opacity(0.5)
     static let target = Color.black.opacity(0.24)
 
-    // A single warm-neutral surface family + one accent. Restraint reads as polish.
     static let surface = Color(red: 243 / 255, green: 243 / 255, blue: 241 / 255)
-    static let recessed = Color(red: 0, green: 0, blue: 0).opacity(0.055)
-    static let neutralButton = Color(red: 227 / 255, green: 227 / 255, blue: 224 / 255)
+    static let recessed = Color.black.opacity(0.06)
+    static let chip = Color(red: 255 / 255, green: 255 / 255, blue: 255 / 255)
+    static let neutralButton = Color(red: 226 / 255, green: 226 / 255, blue: 223 / 255)
     static let text = Color(red: 29 / 255, green: 29 / 255, blue: 31 / 255)
-    static let secondaryText = Color(red: 107 / 255, green: 107 / 255, blue: 112 / 255)
-    static let tertiaryText = Color(red: 156 / 255, green: 156 / 255, blue: 161 / 255)
-    static let hairline = Color.black.opacity(0.10)
-    static let accent = Color(red: 10 / 255, green: 132 / 255, blue: 255 / 255)
+    static let secondaryText = Color(red: 105 / 255, green: 105 / 255, blue: 110 / 255)
+    static let tertiaryText = Color(red: 152 / 255, green: 152 / 255, blue: 157 / 255)
+    static let hairline = Color.black.opacity(0.12)
+
+    // Accent is a DEEP GREEN that suits the board — never a blue, and never a pale tint.
+    static let accent = Color(red: 0.20, green: 0.47, blue: 0.30)
     static let dangerFill = Color(red: 236 / 255, green: 223 / 255, blue: 221 / 255)
     static let dangerText = Color(red: 176 / 255, green: 45 / 255, blue: 38 / 255)
 
-    // Side-to-move accents.
-    static let turnTint = accent.opacity(0.09)
+    // Side-to-move: a faint NEUTRAL elevation + a green avatar ring. No colour wash.
+    static let turnBg = Color.black.opacity(0.045)
     static let turnRing = accent
 
-    static let humanAvatar = Color(red: 108 / 255, green: 114 / 255, blue: 124 / 255)
+    static let humanAvatar = Color(red: 96 / 255, green: 102 / 255, blue: 112 / 255)
 
-    /// A muted, stable avatar background for an agent with no photo — chosen by id so the
-    /// same agent always looks the same, from a desaturated set that never clashes.
+    /// A muted, stable avatar background for an agent with no photo — chosen by id.
     static func agentTint(_ id: String) -> Color {
         let palette: [Color] = [
-            Color(red: 0.36, green: 0.42, blue: 0.68),  // indigo
-            Color(red: 0.24, green: 0.55, blue: 0.49),  // teal
-            Color(red: 0.60, green: 0.42, blue: 0.62),  // plum
-            Color(red: 0.74, green: 0.52, blue: 0.35),  // clay
-            Color(red: 0.38, green: 0.48, blue: 0.55),  // steel
+            Color(red: 0.36, green: 0.42, blue: 0.62),  // indigo
+            Color(red: 0.24, green: 0.53, blue: 0.47),  // teal
+            Color(red: 0.58, green: 0.42, blue: 0.60),  // plum
+            Color(red: 0.72, green: 0.51, blue: 0.34),  // clay
+            Color(red: 0.42, green: 0.48, blue: 0.53),  // steel
         ]
         var h = 5381
         for b in id.utf8 { h = ((h << 5) &+ h) &+ Int(b) }
@@ -60,7 +60,7 @@ private enum UI {
     }
 }
 
-/// What an avatar draws — the "no photo" case is a first-class state, not an accident.
+/// What an avatar draws — the "no photo" case is a first-class state.
 private enum AvatarKind: Equatable {
     case photo(NSImage)
     case monogram(String, Color)
@@ -81,29 +81,28 @@ struct BoardView: View {
     private var bottomColor: Side { orientationWhite ? .w : .b }
     private var topColor: Side { orientationWhite ? .b : .w }
 
-    // Real legal destinations for the selected piece — shown as dots in both modes.
     private var legalTargets: Set<Int> {
         guard let selected else { return [] }
         return Set(game.position.legalMoves(from: selected).map { $0.to })
     }
 
-    // Taps drive a HUMAN seat only, on its turn. An agent seat plays over the CLI.
     private var interactive: Bool {
         game.status == "playing" && game.seat(for: game.position.turn) == .human
     }
 
     var body: some View {
         GeometryReader { proxy in
-            let side = max(BoardMetrics.minSide, proxy.size.width)
+            let width = max(BoardMetrics.minWidth, proxy.size.width)
+            let boardSide = BoardMetrics.boardSide(for: width)
 
             VStack(spacing: 0) {
-                playerStrip(color: topColor)      // opponent, across the board
-                board(side: side)
-                playerStrip(color: bottomColor)   // you (by default)
-                controls(width: side)
+                playerStrip(color: topColor)
+                board(side: boardSide).frame(maxWidth: .infinity)   // gutter margins → aligned
+                playerStrip(color: bottomColor)
+                controls(width: width)
             }
-            .frame(width: side,
-                   height: side + BoardMetrics.stripHeight * 2 + BoardMetrics.controlsHeight,
+            .frame(width: width,
+                   height: boardSide + BoardMetrics.stripHeight * 2 + BoardMetrics.controlsHeight,
                    alignment: .top)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(UI.surface)
@@ -146,32 +145,32 @@ struct BoardView: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: BoardMetrics.stripHeight)
-        .background(isTurn ? UI.turnTint : UI.surface)
+        .background(isTurn ? UI.turnBg : UI.surface)
     }
 
     private func stripLabel(color: Side, isTurn: Bool) -> some View {
         let info = seatInfo(color: color, isTurn: isTurn)
-        return HStack(spacing: 13) {
-            AvatarView(kind: info.kind, size: 44, ring: isTurn ? UI.turnRing : nil)
-            VStack(alignment: .leading, spacing: 2) {
+        return HStack(spacing: 11) {
+            AvatarView(kind: info.kind, size: 38, ring: isTurn ? UI.turnRing : nil)
+            VStack(alignment: .leading, spacing: 1) {
                 Text(info.title)
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .foregroundStyle(info.titleColor)
                     .lineLimit(1)
                 if let subtitle = info.subtitle {
                     Text(subtitle)
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .font(.system(size: 11.5, weight: .medium, design: .rounded))
                         .foregroundStyle(info.subtitleColor)
                         .lineLimit(1)
                 }
             }
             Spacer(minLength: 8)
             colorChip(color)
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.system(size: 11, weight: .semibold))
+            Image(systemName: "chevron.down")
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(UI.tertiaryText)
         }
-        .padding(.horizontal, UI.edge)
+        .padding(.horizontal, UI.gutter)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
     }
@@ -210,14 +209,16 @@ struct BoardView: View {
         }
     }
 
+    /// A colour indicator that stays legible on the light surface — the "white" disc is a
+    /// pale grey with a firm ring (never pure white on white).
     private func colorChip(_ color: Side) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             Circle()
-                .fill(color == .w ? Color.white : Color(white: 0.17))
-                .frame(width: 12, height: 12)
-                .overlay(Circle().stroke(Color.black.opacity(0.22), lineWidth: 1))
+                .fill(color == .w ? Color(white: 0.93) : Color(white: 0.16))
+                .frame(width: 11, height: 11)
+                .overlay(Circle().stroke(Color.black.opacity(0.30), lineWidth: 1))
             Text(color == .w ? "White" : "Black")
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                 .foregroundStyle(UI.secondaryText)
         }
     }
@@ -320,7 +321,7 @@ struct BoardView: View {
 
     private func coordinateOverlay(side: CGFloat) -> some View {
         let square = side / 8
-        let fontSize = max(10, square * 0.135)
+        let fontSize = max(9, square * 0.135)
 
         return ZStack(alignment: .topLeading) {
             ForEach(0..<64, id: \.self) { displayIndex in
@@ -336,8 +337,8 @@ struct BoardView: View {
                         .foregroundStyle(color)
                         .fixedSize()
                         .position(
-                            x: CGFloat(column) * square + 10,
-                            y: CGFloat(row) * square + 11
+                            x: CGFloat(column) * square + 9,
+                            y: CGFloat(row) * square + 10
                         )
                 }
 
@@ -347,8 +348,8 @@ struct BoardView: View {
                         .foregroundStyle(color)
                         .fixedSize()
                         .position(
-                            x: CGFloat(column + 1) * square - 10,
-                            y: CGFloat(row + 1) * square - 10
+                            x: CGFloat(column + 1) * square - 9,
+                            y: CGFloat(row + 1) * square - 9
                         )
                 }
             }
@@ -365,7 +366,6 @@ struct BoardView: View {
 
     private func tap(_ sq: Int) {
         if let from = selected {
-            // Chaos mode accepts any destination; strict mode only a legal one.
             let canLand = game.allowIllegal ? (sq != from) : legalTargets.contains(sq)
             if canLand {
                 if let piece = game.position.board[from], piece.type == .p,
@@ -390,42 +390,39 @@ struct BoardView: View {
     // MARK: - Controls
 
     private func controls(width: CGFloat) -> some View {
-        VStack(spacing: 11) {
-            // Row 1 — status (grows) + the game actions.
-            HStack(spacing: 9) {
+        VStack(spacing: 9) {
+            HStack(spacing: 8) {
                 Text(statusText)
-                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
                     .foregroundStyle(statusColor)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                actionButton("New Game", width: 104, tone: .primary, disabled: !game.seatsReady) {
+                actionButton("New Game", width: 92, tone: .primary, disabled: !game.seatsReady) {
                     startNewGame()
                 }
-                actionButton("Takeback", width: 88, tone: .neutral, disabled: game.history.isEmpty) {
+                iconButton("arrow.uturn.backward", help: "Take back a move", disabled: game.history.isEmpty) {
                     game.takeback(1)
                 }
                 if game.hasHuman {
-                    actionButton("Resign", width: 82, tone: .danger, disabled: game.status != "playing") {
+                    actionButton("Resign", width: 74, tone: .danger, disabled: game.status != "playing") {
                         try? game.resign(resignColor, by: .user)
                     }
                 } else {
-                    actionButton("End Game", width: 92, tone: .danger, disabled: game.status != "playing") {
+                    actionButton("End Game", width: 86, tone: .danger, disabled: game.status != "playing") {
                         game.endGame()
                     }
                 }
             }
             .frame(height: UI.buttonHeight)
 
-            // Row 2 — move history.
             movesRail
 
-            // Row 3 — options (de-emphasized): the chaos switch + board perspective.
             optionsRow
         }
-        .padding(.top, 13)
-        .padding(.horizontal, UI.edge)
+        .padding(.top, 11)
+        .padding(.horizontal, UI.gutter)
         .frame(width: width, height: BoardMetrics.controlsHeight, alignment: .top)
         .background(UI.surface)
         .overlay(alignment: .top) {
@@ -434,18 +431,18 @@ struct BoardView: View {
     }
 
     private var optionsRow: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             if preview {
-                HStack(spacing: 8) {
+                HStack(spacing: 7) {
                     staticSwitch(game.allowIllegal)
                     Text("Allow illegal moves")
-                        .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(UI.secondaryText)
                 }
             } else {
                 Toggle(isOn: $game.allowIllegal) {
                     Text("Allow illegal moves")
-                        .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundStyle(UI.secondaryText)
                 }
                 .toggleStyle(.switch)
@@ -454,10 +451,10 @@ struct BoardView: View {
                 .fixedSize()
             }
 
-            Spacer(minLength: 10)
+            Spacer(minLength: 8)
 
             Text("View")
-                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .font(.system(size: 11.5, weight: .medium, design: .rounded))
                 .foregroundStyle(UI.tertiaryText)
             if preview {
                 staticSegmented(orientationWhite)
@@ -472,18 +469,15 @@ struct BoardView: View {
                 .fixedSize()
             }
         }
-        .frame(height: 22)
+        .frame(height: 20)
     }
 
-    /// Reset to the start position with the current seats, orienting a lone human to the
-    /// bottom. If White is an agent, `Game.newGame` wakes it to open.
     private func startNewGame() {
         if game.whiteSeat == .human && game.blackSeat != .human { orientationWhite = true }
         else if game.blackSeat == .human && game.whiteSeat != .human { orientationWhite = false }
         game.newGame()
     }
 
-    /// Resign the human's side; in hotseat, resign the side to move.
     private var resignColor: Side {
         if game.whiteSeat == .human && game.blackSeat != .human { return .w }
         if game.blackSeat == .human && game.whiteSeat != .human { return .b }
@@ -499,7 +493,7 @@ struct BoardView: View {
     ) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
                 .frame(width: width, height: UI.buttonHeight)
@@ -508,37 +502,49 @@ struct BoardView: View {
         .disabled(disabled)
     }
 
+    private func iconButton(_ system: String, help: String, disabled: Bool,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: system)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 34, height: UI.buttonHeight)
+        }
+        .buttonStyle(ArfButtonStyle(tone: .neutral, disabled: disabled))
+        .disabled(disabled)
+        .help(help)
+    }
+
     private var movesRail: some View {
         Group {
             if preview {
-                HStack(spacing: 7) { movesContent }
+                HStack(spacing: 6) { movesContent }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
+                    .padding(.horizontal, 8)
                     .clipped()
             } else {
                 ScrollView(.horizontal) {
-                    LazyHStack(spacing: 7) { movesContent }
+                    LazyHStack(spacing: 6) { movesContent }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 10)
+                        .padding(.horizontal, 8)
                 }
                 .scrollIndicators(.hidden)
             }
         }
-        .frame(height: 38)
+        .frame(height: 34)
         .background(UI.recessed)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
     }
 
     @ViewBuilder
     private var movesContent: some View {
         if movePairs.isEmpty {
             Text(game.status == "idle" ? "Moves will appear here" : "No moves yet")
-                .font(.system(size: 13.5, weight: .medium, design: .rounded))
+                .font(.system(size: 12.5, weight: .medium, design: .rounded))
                 .foregroundStyle(UI.tertiaryText)
-                .frame(height: 38)
+                .frame(height: 34)
         } else {
             ForEach(movePairs, id: \.0) { number, white, black in
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     Text("\(number).")
                         .foregroundStyle(UI.tertiaryText)
                     Text(white.isEmpty ? "…" : white)
@@ -547,18 +553,19 @@ struct BoardView: View {
                         Text(black).foregroundStyle(UI.text)
                     }
                 }
-                .font(.system(size: 13.5, weight: .semibold, design: .monospaced))
+                .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
                 .lineLimit(1)
-                .padding(.horizontal, 9)
-                .frame(height: 28)
-                .background(Color.white.opacity(0.7))
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .padding(.horizontal, 8)
+                .frame(height: 24)
+                .background(UI.chip)
+                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(UI.hairline, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
         }
     }
 
     private var promoPicker: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 14) {
             ForEach([PieceType.q, .r, .b, .n], id: \.self) { type in
                 Button {
                     if let promo {
@@ -566,15 +573,15 @@ struct BoardView: View {
                     }
                     promo = nil
                 } label: {
-                    PieceIcon(piece: Piece(color: game.position.turn, type: type), side: 68)
-                        .frame(width: 76, height: 76)
+                    PieceIcon(piece: Piece(color: game.position.turn, type: type), side: 60)
+                        .frame(width: 68, height: 68)
                         .background(UI.recessed)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(24)
+        .padding(22)
         .background(UI.surface)
     }
 
@@ -626,31 +633,33 @@ struct BoardView: View {
 
     private func staticSwitch(_ on: Bool) -> some View {
         Capsule()
-            .fill(on ? UI.accent : Color.black.opacity(0.20))
-            .frame(width: 28, height: 16)
+            .fill(on ? UI.accent : Color.black.opacity(0.22))
+            .frame(width: 26, height: 15)
             .overlay(
-                Circle().fill(.white).frame(width: 12, height: 12)
-                    .offset(x: on ? 5.5 : -5.5)
+                Circle().fill(.white).frame(width: 11, height: 11)
+                    .offset(x: on ? 5 : -5)
             )
     }
 
     private func staticSegmented(_ leftSelected: Bool) -> some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 2) {
             segCell("White", selected: leftSelected)
-            Rectangle().fill(UI.hairline).frame(width: 1, height: 14)
             segCell("Black", selected: !leftSelected)
         }
-        .background(RoundedRectangle(cornerRadius: 6).fill(UI.recessed))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(UI.hairline, lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color.black.opacity(0.09)))
     }
 
     private func segCell(_ title: String, selected: Bool) -> some View {
         Text(title)
-            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .font(.system(size: 11.5, weight: .semibold, design: .rounded))
             .foregroundStyle(selected ? UI.text : UI.secondaryText)
-            .frame(width: 52, height: 22)
-            .background(selected ? Color.white : Color.clear)
+            .frame(width: 48, height: 18)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(selected ? UI.chip : Color.clear)
+                    .shadow(color: selected ? Color.black.opacity(0.12) : .clear, radius: 0.5, y: 0.5)
+            )
     }
 }
 
@@ -665,6 +674,7 @@ private struct AvatarView: View {
         ZStack {
             switch kind {
             case .photo(let img):
+                Color(white: 0.90)   // backing so a transparent/pale photo is never white-on-white
                 Image(nsImage: img).resizable().scaledToFill()
             case .monogram(let mono, let tint):
                 tint
@@ -690,14 +700,13 @@ private struct AvatarView: View {
                 Circle().strokeBorder(UI.tertiaryText.opacity(0.7),
                                       style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
             } else {
-                Circle().stroke(Color.black.opacity(0.10), lineWidth: 1)
+                Circle().stroke(Color.black.opacity(0.12), lineWidth: 1)
             }
         }
         .overlay(Circle().strokeBorder(ring ?? .clear, lineWidth: 2.5))
     }
 }
 
-/// Small cache so a strip re-render doesn't re-read the avatar file each frame.
 private enum AvatarCache {
     private static let cache = NSCache<NSString, NSImage>()
     static func image(_ path: String?) -> NSImage? {
@@ -726,7 +735,7 @@ private struct ArfButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: UI.buttonRadius, style: .continuous)
                     .stroke(border, lineWidth: 1)
             }
-            .opacity(disabled ? 0.42 : 1)
+            .opacity(disabled ? 0.40 : 1)
             .scaleEffect(configuration.isPressed && !disabled ? 0.98 : 1)
             .contentShape(RoundedRectangle(cornerRadius: UI.buttonRadius, style: .continuous))
     }
@@ -741,8 +750,8 @@ private struct ArfButtonStyle: ButtonStyle {
 
     private var border: Color {
         switch tone {
-        case .primary: return Color.white.opacity(0.18)
-        case .neutral: return Color.black.opacity(0.06)
+        case .primary: return Color.black.opacity(0.06)
+        case .neutral: return Color.black.opacity(0.07)
         case .danger: return UI.dangerText.opacity(0.14)
         }
     }
@@ -754,7 +763,7 @@ private struct ArfButtonStyle: ButtonStyle {
         case .neutral: base = UI.neutralButton
         case .danger: base = UI.dangerFill
         }
-        return pressed && !disabled ? base.opacity(0.78) : base
+        return pressed && !disabled ? base.opacity(0.80) : base
     }
 }
 
