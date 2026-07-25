@@ -1,7 +1,7 @@
 # Architecture
 
-How a clapp-style app is put together, and why. This is the mental model; the frozen,
-normative contract is [protocol.md](protocol.md) — The Clapp Protocol.
+How a clapp-style app is put together, and why. This is the mental model; the
+normative details live in the [Clatch repo](https://github.com/arfium/clatch)'s `reference/` specs.
 
 ## The boundary (what Clatch does and does not do)
 
@@ -105,11 +105,13 @@ liveness (socket closed = app gone, no polling). After that you just answer `app
 and exit on `app.shutdown`.
 
 Clatch also **pushes** `app.agents` — a full snapshot of the agents bound to your
-app (name, backend, model, avatar), once after register and again on every change.
-`ControlPipe.swift` replaces its view each time (the ordered stream delivers them in
-order) and hands it to an optional `onAgents` callback; it is the roster for
-targeting a *named* agent. The demo leaves `onAgents` unset — it targets the caller
-via `CLATCH_AGENT`, below.
+app (**id**, name, backend, model, avatar), once after register and again on every
+change. `ControlPipe.swift` replaces its view each time (the ordered stream delivers
+them in order) and hands it to an optional `onAgents` callback; it is the roster for
+targeting a *chosen* agent and mapping its **id → display name**. The `id` is the
+immutable wire key; the `name` is a re-pointable label (same id + new name = the same
+agent) — key on the id, show the name; targeting by name is a bug. The demo leaves
+`onAgents` unset — it targets the caller via `CLATCH_AGENT_ID`, below.
 
 The reader is **fail-fast** (protocol.md § Framing): both ends of this pipe are
 Clatch (its daemon writes, this binding reads), so a malformed or absurdly-sized
@@ -134,8 +136,8 @@ reserved-but-empty method.
 | `app.notify` | app→clatch | notify | `{text}` | a short line for the **user's** Clatch chat (not your GUI) |
 | `app.ping` | clatch→app | request | — | health probe; reply `{ok:true}` |
 | `app.shutdown` | clatch→app | request | — | graceful stop; reply, then exit |
-| `app.agents` | clatch→app | notify | `{agents:[{name, backend, model?, avatar?}]}` | roster of **this app's** bound agents; replace-in-place |
-| `app.toAgentRefused` | clatch→app | notify | `{id, agent, reason}` | an all-or-nothing fan-out was refused whole (`reason`: `inbox_full`\|`queue_full`) |
+| `app.agents` | clatch→app | notify | `{agents:[{id, name, backend, model?, avatar?}]}` | roster of **this app's** bound agents (id = wire key, name = label); replace-in-place |
+| `app.toAgentRefused` | clatch→app | notify | `{id, agent, reason}` | an all-or-nothing fan-out was refused whole; `agent` = the refusing **agent id** (`reason`: `inbox_full`\|`queue_full`) |
 
 The app→clatch surface is **notifications only** apart from the one `app.register`
 request, so a misbehaving app can never wedge its own pipe with an unread request
@@ -208,7 +210,7 @@ slot per agent, so it can never refuse.)
 
 A refusal is **reported back.** If the fan-out is refused, Clatch sends
 `app.toAgentRefused { id, agent, reason }` — the refused signal's id, the first
-blocking agent (by name), and `reason` (`inbox_full` for a `run` target, `queue_full`
+blocking agent's **id**, and `reason` (`inbox_full` for a `run` target, `queue_full`
 for a `context` one). `ControlPipe` hands it to `onSignalRefused`; this template's handler
 tells the human over `app.notify` (a line in their Clatch chat), so a full-inbox
 agent doesn't read as a dead button. Either way a fan-out lands **whole**, or you
@@ -218,20 +220,22 @@ learn **which signal didn't** — never a silent partial delivery.
 
 By default a signal **broadcasts** — it fans out to every agent granted the app
 (that the cut matrix passes). A signal may instead **target** specific agents by
-name (Clatch #77): `emitSignal(…, target: ["research"], …)`. Empty `target` (the
-default) is the broadcast; a non-empty target is *still* intersected with the cut
-matrix, so you can never reach an agent that didn't grant you — targeting narrows
-the fan-out, it never widens it.
+**id**: `emitSignal(…, target: ["1753460000"], …)`. Empty `target` (the default) is
+the broadcast; a non-empty target is *still* intersected with the cut matrix, so you
+can never reach an agent that didn't grant you — targeting narrows the fan-out, it
+never widens it. Target **ids, never names**: an agent's `name` is a re-pointable
+label, its `id` is the stable wire key (protocol.md §9).
 
-The app can target precisely because **it knows who invoked its CLI**: Clatch
-injects `CLATCH_AGENT=<name>` into every agent's CLI shell, so the CLI client
-forwards that name to the app (`Request.agent` → `AppState.lastAgent`). From there
-an app can wake the caller, a named other agent, a set, or everyone.
+The app can target precisely because **it knows who invoked its CLI**: Clatch injects
+`CLATCH_AGENT_ID=<id>` (the caller agent's immutable id) into every agent's CLI shell,
+so the CLI client forwards that id to the app (`Request.agent` → `AppState.lastAgent`).
+From there an app can wake the caller, a chosen other agent, a set, or everyone — and
+because it's an id, it stays valid even if that agent is later renamed.
 
 clapp's own signals are **user-origin** (a GUI edit, the Wake-agent button) — a
-human has no agent name, so they broadcast; that is correct. The pattern shows its
-value when a signal is *deferred* and *owned*: the **clock** example records the
-`CLATCH_AGENT` of whoever set an alarm and, when it fires, wakes **exactly that
+human has no `CLATCH_AGENT_ID`, so they broadcast; that is correct. The pattern shows
+its value when a signal is *deferred* and *owned*: the **clock** example records the
+`CLATCH_AGENT_ID` of whoever set an alarm and, when it fires, wakes **exactly that
 agent** — the same code, one filled-in `target`.
 
 ## Always-on apps (schedulers, observers, the clock app)
