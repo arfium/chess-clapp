@@ -145,12 +145,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        // The whole app is drawn in a FIXED light appearance — never the system's
+        // dark/light theme — so native controls and default text keep the exact colours
+        // this UI is designed around (a dark-mode flip is what caused white-on-white).
+        let aqua = NSAppearance(named: .aqua)
+        NSApp.appearance = aqua
+
+        let size = NSSize(width: BoardMetrics.minWidth, height: BoardMetrics.minHeight)
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: BoardMetrics.minWidth, height: BoardMetrics.minHeight),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.titled, .closable, .miniaturizable],   // no .resizable → fixed size
             backing: .buffered, defer: false)
         win.title = AppInfo.cli
-        win.contentMinSize = NSSize(width: BoardMetrics.minWidth, height: BoardMetrics.minHeight)
+        win.contentMinSize = size          // pin min == max so width & height never change
+        win.contentMaxSize = size
+        win.appearance = aqua
         win.contentView = NSHostingView(rootView: BoardView(game: game))
         win.center()
         win.makeKeyAndOrderFront(nil)

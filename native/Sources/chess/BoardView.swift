@@ -5,10 +5,10 @@ import SwiftUI
 /// One `gutter` insets the board AND every row, so the board's left edge, the avatars,
 /// the status text and the buttons all sit on a single column. Compact by intent.
 enum BoardMetrics {
-    static let gutter: CGFloat = 16
-    static let minWidth: CGFloat = 452
-    static let stripHeight: CGFloat = 52
-    static let controlsHeight: CGFloat = 128
+    static let gutter: CGFloat = 22
+    static let minWidth: CGFloat = 456
+    static let stripHeight: CGFloat = 54
+    static let controlsHeight: CGFloat = 130
     static func boardSide(for width: CGFloat) -> CGFloat { width - gutter * 2 }
     static var minHeight: CGFloat { boardSide(for: minWidth) + stripHeight * 2 + controlsHeight }
 }
@@ -17,33 +17,39 @@ private enum UI {
     static let gutter = BoardMetrics.gutter
     static let buttonRadius: CGFloat = 8
     static let buttonHeight: CGFloat = 30
-    static let pieceScale: CGFloat = 0.94
+    static let pieceScale: CGFloat = 0.86
 
+    // Every colour is an explicit literal — the app is pinned to a light appearance, so
+    // nothing here shifts with the system theme.
     static let boardLight = Color(red: 236 / 255, green: 237 / 255, blue: 208 / 255)
     static let boardDark = Color(red: 111 / 255, green: 143 / 255, blue: 80 / 255)
-    static let selected = Color(red: 246 / 255, green: 234 / 255, blue: 92 / 255)
-    static let lastMove = Color(red: 246 / 255, green: 210 / 255, blue: 76 / 255).opacity(0.5)
+    static let selected = Color(red: 245 / 255, green: 213 / 255, blue: 122 / 255)
+    static let lastMove = Color(red: 245 / 255, green: 205 / 255, blue: 110 / 255).opacity(0.5)
     static let target = Color.black.opacity(0.24)
 
-    static let surface = Color(red: 243 / 255, green: 243 / 255, blue: 241 / 255)
+    static let surface = Color(red: 244 / 255, green: 243 / 255, blue: 240 / 255)
     static let recessed = Color.black.opacity(0.06)
-    static let chip = Color(red: 255 / 255, green: 255 / 255, blue: 255 / 255)
-    static let neutralButton = Color(red: 226 / 255, green: 226 / 255, blue: 223 / 255)
-    static let text = Color(red: 29 / 255, green: 29 / 255, blue: 31 / 255)
-    static let secondaryText = Color(red: 105 / 255, green: 105 / 255, blue: 110 / 255)
-    static let tertiaryText = Color(red: 152 / 255, green: 152 / 255, blue: 157 / 255)
+    static let chip = Color.white
+    static let neutralButton = Color(red: 228 / 255, green: 227 / 255, blue: 223 / 255)
+    static let text = Color(red: 30 / 255, green: 29 / 255, blue: 27 / 255)
+    static let secondaryText = Color(red: 108 / 255, green: 104 / 255, blue: 98 / 255)
+    static let tertiaryText = Color(red: 158 / 255, green: 154 / 255, blue: 147 / 255)
     static let hairline = Color.black.opacity(0.12)
 
-    // Accent is a DEEP GREEN that suits the board — never a blue, and never a pale tint.
-    static let accent = Color(red: 0.20, green: 0.47, blue: 0.30)
-    static let dangerFill = Color(red: 236 / 255, green: 223 / 255, blue: 221 / 255)
-    static let dangerText = Color(red: 176 / 255, green: 45 / 255, blue: 38 / 255)
+    // Two quiet, warm accents — no green, no blue.
+    //   ink    = the primary action (deep near-black charcoal, white text)
+    //   active = whose turn it is + the caution switch (a warm amber that reads on any avatar)
+    static let ink = Color(red: 43 / 255, green: 41 / 255, blue: 38 / 255)
+    static let active = Color(red: 183 / 255, green: 130 / 255, blue: 52 / 255)
+    static let activeText = Color(red: 140 / 255, green: 97 / 255, blue: 30 / 255)
+    static let dangerFill = Color(red: 237 / 255, green: 224 / 255, blue: 221 / 255)
+    static let dangerText = Color(red: 173 / 255, green: 51 / 255, blue: 41 / 255)
 
-    // Side-to-move: a faint NEUTRAL elevation + a green avatar ring. No colour wash.
-    static let turnBg = Color.black.opacity(0.045)
-    static let turnRing = accent
+    // Side-to-move: a faint NEUTRAL elevation + a warm amber avatar ring.
+    static let turnBg = Color.black.opacity(0.05)
+    static let turnRing = active
 
-    static let humanAvatar = Color(red: 96 / 255, green: 102 / 255, blue: 112 / 255)
+    static let humanAvatar = Color(red: 92 / 255, green: 96 / 255, blue: 104 / 255)
 
     /// A muted, stable avatar background for an agent with no photo — chosen by id.
     static func agentTint(_ id: String) -> Color {
@@ -192,7 +198,7 @@ struct BoardView: View {
         case .human:
             return SeatInfo(title: "You", titleColor: UI.text,
                             subtitle: isTurn ? "your move" : "human",
-                            subtitleColor: isTurn ? UI.accent : UI.secondaryText,
+                            subtitleColor: isTurn ? UI.activeText : UI.secondaryText,
                             kind: .person(UI.humanAvatar))
         case .agent(let id):
             guard let a = game.agent(forId: id) else {
@@ -204,7 +210,7 @@ struct BoardView: View {
                 ?? .monogram(String(a.name.prefix(1)).uppercased(), UI.agentTint(a.id))
             return SeatInfo(title: a.name, titleColor: UI.text,
                             subtitle: isTurn ? "thinking…" : (a.model ?? a.backend),
-                            subtitleColor: isTurn ? UI.accent : UI.secondaryText,
+                            subtitleColor: isTurn ? UI.activeText : UI.secondaryText,
                             kind: kind)
         }
     }
@@ -447,7 +453,7 @@ struct BoardView: View {
                 }
                 .toggleStyle(.switch)
                 .controlSize(.mini)
-                .tint(UI.accent)
+                .tint(UI.active)
                 .fixedSize()
             }
 
@@ -633,7 +639,7 @@ struct BoardView: View {
 
     private func staticSwitch(_ on: Bool) -> some View {
         Capsule()
-            .fill(on ? UI.accent : Color.black.opacity(0.22))
+            .fill(on ? UI.active : Color.black.opacity(0.22))
             .frame(width: 26, height: 15)
             .overlay(
                 Circle().fill(.white).frame(width: 11, height: 11)
@@ -759,7 +765,7 @@ private struct ArfButtonStyle: ButtonStyle {
     private func background(_ pressed: Bool) -> Color {
         let base: Color
         switch tone {
-        case .primary: base = UI.accent
+        case .primary: base = UI.ink
         case .neutral: base = UI.neutralButton
         case .danger: base = UI.dangerFill
         }
