@@ -39,15 +39,17 @@ SwiftUI **GUI** (for the human) and a **CLI** (for the agent) over **one shared,
 
 ## Signals this app emits
 
-| id | type | when | payload |
-|---|---|---|---|
-| `move` | `run` | the **human** makes a move → wakes the agent to respond | `{san}` |
-| `position` | `buffered` | **every** move (human or agent) → the live board in the agent's chat buffer | `{fen, last}` |
-| `game.over` | `context` | the game ends on a human action | `{status, result}` |
+| id | type | when | target | payload |
+|---|---|---|---|---|
+| `move` | `run` | after any move, the side to move is an agent → wake it to play | **that agent's id** | `{san?, fen, turn}` |
+| `position` | `buffered` | **every** move → the live board in each agent's chat buffer | broadcast | `{fen, last}` |
+| `game.over` | `context` | the game ends (a move or a resignation) | broadcast | `{status, result[, winner]}` |
 
-`move`/`game.over` fire only on USER (GUI) actions — the agent knows its own moves.
-`position` rides every move so the buffer always holds the current board (the FEN);
-the agent can also read the truth via `chess board`.
+`move` is **targeted** at whoever must answer — by agent **id**, resolved from the
+seat (`CLATCH_AGENT_ID` on the roster). A human seat is never woken (it plays in the
+window), and the mover is never re-woken by its own move — so this one signal drives
+both you-vs-agent and agent-vs-agent. `position`/`game.over` broadcast; the agent can
+always read the truth via `chess board`.
 
 ## File map — the app vs the transport
 
@@ -58,8 +60,11 @@ the agent can also read the truth via `chess board`.
 ## Conventions & gotchas
 
 - **macOS only.** `launch` has no cross-OS fallback; a Swift executable is macOS.
-- **Ownership is server-side:** `Game.move(by:)` rejects a move that isn't the
-  actor's color or isn't its turn. The GUI is the human; the socket is the agent.
+- **Seats + ownership, server-side:** each side is a `Seat` (`.human` or
+  `.agent(id)`), filled from the player strips. `Game.move(by:callerId:)` lets a side
+  be moved only by its occupant — a real agent (its `CLATCH_AGENT_ID`) is held to its
+  own seat; the standalone dev hatch (no id) may move either side. Roster + avatars
+  arrive on the control pipe's `app.agents` push (`Game.setAgents`).
 - **Sandbox-aware CLI errors** (in `IPC.swift`): `ENOENT`/`ECONNREFUSED` → "app is
   not running"; `EPERM`/`EACCES` → "blocked by the sandbox".
 - **The board** (`BoardView`) renders cburnett **PNG** pieces
@@ -71,8 +76,9 @@ the agent can also read the truth via `chess board`.
 
 ## Operating the running app (the end-user's agent)
 
-`chess --help` is the only manual. You own the color the human did **not** pick and
-may move only on your turn. A `move` signal (run) means it's your turn: `chess board`
-to read the position, then `chess move <uci>` to play. Verbs: `board` · `fen` ·
-`legal [square]` · `move <uci>` · `say "<text>"` · `new [white|black|random]` ·
-`resign` · `takeback [n]` · `focus` · `close`.
+`chess --help` is the only manual. The human seats you on a side in the window; a
+`move` signal (run) means it's your turn. `chess board` prints *"you are White/Black"*
+and the position; then `chess move <uci>` to play. You may move only your seat's color
+— the app enforces it, so in an agent-vs-agent game neither side can move for the
+other. Verbs: `board` · `fen` · `legal [square]` · `move <uci>` · `say "<text>"` ·
+`new [white|black|random]` · `resign` · `takeback [n]` · `focus` · `close`.

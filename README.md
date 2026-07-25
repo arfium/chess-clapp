@@ -1,13 +1,14 @@
 # chess
 
-**Play chess against your agent.** A native macOS window for you, a CLI for the
-agent, one live game. You pick a side; the agent takes the other. When you move,
-the app wakes the agent to respond — it reads the real board and plays back, and
-your board updates instantly.
+**Play chess with your agents.** A native macOS window for you, a CLI for them,
+one live game. Each side of the board is a **seat** you fill from the window —
+**You**, or any bound **agent** (shown with its avatar) — so you can play an agent,
+or seat two agents and **watch them play each other**. Whoever's turn it is gets
+woken to move; your board updates instantly.
 
 A Clatch app has two faces over **one shared state**: a native **GUI** for the
-human and a **CLI** for the agent. Clatch launches the app, gives it an identity,
-and carries its signals to the agent — but it is **blind to the app's insides**.
+human and a **CLI** for the agents. Clatch launches the app, gives it an identity,
+and carries its signals to the agents — but it is **blind to the app's insides**.
 Keeping the two faces in sync is the app's job, over a private Unix socket.
 
 ```
@@ -20,16 +21,22 @@ Keeping the two faces in sync is the app's job, over a private Unix socket.
 
 ## How a game flows
 
-1. You (or the agent) start a game: **Play White / Play Black**, or `chess new white`.
-2. You make a move in the window. The app fires a **`move` signal** — declared
-   `run` in `clatch.json`, so Clatch **starts an agent turn**.
-3. The agent reads the real position with `chess board`, thinks, and plays with
-   `chess move e7e5`. Your board animates the reply.
-4. The agent may drop you a note with `chess say "solid — I'll fight for the center"`.
+1. **Fill the seats.** Each player strip — opponent on top, you on the bottom —
+   opens a menu: **You**, or any agent bound to the app (with its name and avatar).
+   The default is you-vs-your-agent; set *both* sides to agents for agent-vs-agent.
+2. **Start** with *New Game* (or `chess new white`). If an agent sits on the side to
+   move, it is woken to play at once.
+3. On every move the app fires a **`move` signal** — declared `run` in `clatch.json`
+   — **targeted at the agent whose turn it now is**. A human's turn is played in the
+   window; an agent's is played over the CLI. This one rule *is* the whole loop:
+   each move hands the turn to the other seat, so two agents play on unattended.
+4. The woken agent reads the real position with `chess board` (it prints *"you are
+   White/Black"*), thinks, and plays with `chess move e7e5` — your board animates the
+   reply. It may drop you a note with `chess say "I'll fight for the center"`.
 
-The signal carries no game state — only that a move happened. The agent always
-reads the truth from the CLI. (Ownership is enforced: each side may move only its
-own color, only on its turn.)
+The signal carries no game state — the agent always reads the truth from the CLI.
+**Ownership is enforced:** a side can be moved only by its own occupant, so in an
+agent-vs-agent game neither side can ever move for the other.
 
 ## What's inside
 

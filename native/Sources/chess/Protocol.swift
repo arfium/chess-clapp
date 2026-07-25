@@ -12,6 +12,7 @@ struct Request: Codable {
     var n: Int?             // takeback count
     var square: String?     // legal moves from a square
     var text: String?       // coach message
+    var agent: String?      // the caller's CLATCH_AGENT_ID (the agent id, forwarded by the CLI)
 }
 
 struct MoveDTO: Codable {
@@ -25,8 +26,9 @@ struct MoveDTO: Codable {
 struct StateDTO: Codable {
     var status: String          // idle | playing | checkmate | stalemate | draw | resigned
     var turn: String            // w | b
-    var humanColor: String
-    var agentColor: String
+    var whitePlayer: String     // who sits White: "You" | an agent's name | "Agent"
+    var blackPlayer: String     // who sits Black
+    var yourColor: String?      // the CALLING agent's color ("w"|"b"), if it holds a seat
     var inCheck: Bool
     var result: String?         // 1-0 | 0-1 | 1/2-1/2
     var winner: String?         // w | b | null

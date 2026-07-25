@@ -41,7 +41,9 @@ func printState(_ st: StateDTO) {
         print(line)
     }
     if st.status != "idle" {
-        print("you play \(colorWord(st.agentColor)), human plays \(colorWord(st.humanColor))")
+        var line = "White: \(st.whitePlayer)   Black: \(st.blackPlayer)"
+        if let yc = st.yourColor { line += "   (you are \(colorWord(yc)))" }
+        print(line)
     }
     if let coach = st.coach, !coach.isEmpty { print("note: \(coach)") }
 }
@@ -49,13 +51,16 @@ func printState(_ st: StateDTO) {
 // `<cli> --help` is the agent's ONLY manual (docs/protocol.md § Manifest): document
 // every verb here. If a verb isn't here, the agent doesn't know it exists.
 let helpText = """
-\(AppInfo.cli) — play chess against the user. The human drives the GUI; you drive this
-CLI on the same live game. The app is a single window + a Unix-domain-socket server
-(no TCP port); this CLI is your interface to it.
+\(AppInfo.cli) — play chess. The human drives the GUI; you drive this CLI on the same
+live game. The app is a single window + a Unix-domain-socket server (no TCP port); this
+CLI is your interface to it.
 
-You own the color the user did NOT pick and may move ONLY on your turn — the app
-enforces it. When the user moves, Clatch wakes you (the `move` signal); read the real
-board with `board`, then play with `move`.
+Each side of the board is a SEAT — White or Black — and the human assigns the seats in
+the window: You, a specific agent, or (both seats agents) agent-vs-agent. You are woken
+only when it is YOUR seat's turn: Clatch delivers a `move` signal, you read the real
+board with `board` (it prints "you are White/Black"), then play with `move`. You may
+move ONLY on your turn — the app enforces it, so in an agent-vs-agent game neither side
+can move for the other. If you were not given a seat, `board` won't say a color; don't move.
 
 usage:
   \(AppInfo.cli) board                print the board, whose turn, the move list, your color
@@ -113,10 +118,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         : reason == "queue_full" ? "its context queue is full" : reason
                 pipe?.notify("\(AppInfo.cli): couldn't deliver '\(id)' to \(agent) — \(why); nothing was delivered")
             }
+            // Clatch pushes the bound-agent roster here (after register + on every
+            // change). Feed it to the game so seats can be filled and each player
+            // strip wears the agent's name and avatar.
+            pipe.onAgents = { [weak self] agents in
+                let rows = agents.map {
+                    AgentRow(id: $0.id, name: $0.name, backend: $0.backend,
+                             model: $0.model, avatarPath: $0.avatar?.path)
+                }
+                DispatchQueue.main.async { self?.game.setAgents(rows) }
+            }
             if pipe.start() {
                 control = pipe
-                game.onSignal = { [weak self] name, payload in
-                    self?.control?.emitSignal(name, payload)
+                game.onSignal = { [weak self] id, target, payload in
+                    self?.control?.emitSignal(id, target: target, payload)
                 }
             } else if wiredByClatch {
                 NSApp.terminate(nil)
@@ -129,11 +144,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 680, height: 828),
+            contentRect: NSRect(x: 0, y: 0, width: BoardMetrics.minWidth, height: BoardMetrics.minHeight),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
         win.title = AppInfo.cli
-        win.contentMinSize = NSSize(width: 680, height: 828)
+        win.contentMinSize = NSSize(width: BoardMetrics.minWidth, height: BoardMetrics.minHeight)
         win.contentView = NSHostingView(rootView: BoardView(game: game))
         win.center()
         win.makeKeyAndOrderFront(nil)
@@ -164,32 +179,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.async { NSApp.terminate(nil) }
             return Response(ok: true, message: "bye")
         case "state", "board", "fen":
-            return Response(ok: true, state: game.snapshot())
+            return Response(ok: true, state: game.snapshot(callerId: req.agent))
         case "new":
-            game.newGame(humanColor: parseColor(req.color))
-            return Response(ok: true, state: game.snapshot())
+            let human = parseColor(req.color)
+            // The human takes the requested color; the calling agent takes the other
+            // side (standalone with no agent id keeps that side's current occupant).
+            let opponent: Seat = req.agent.map { .agent($0) } ?? game.seat(for: human.other)
+            game.newGame(white: human == .w ? .human : opponent,
+                         black: human == .b ? .human : opponent)
+            return Response(ok: true, state: game.snapshot(callerId: req.agent))
         case "move":
             guard let f = req.from.flatMap(parseSquare), let t = req.to.flatMap(parseSquare) else {
                 return Response(ok: false, error: "move needs from/to squares")
             }
             let promo = req.promo.flatMap { PieceType(rawValue: $0.lowercased()) }
             do {
-                try game.move(from: f, to: t, promo: promo, by: .agent)
-                return Response(ok: true, state: game.snapshot())
+                try game.move(from: f, to: t, promo: promo, by: .agent, callerId: req.agent)
+                return Response(ok: true, state: game.snapshot(callerId: req.agent))
             } catch {
                 return Response(ok: false, error: "\(error)")
             }
         case "resign":
-            do { try game.resign(game.agentColor, by: .agent); return Response(ok: true, state: game.snapshot()) }
+            // Resign the caller's own color; if the caller holds no seat (or is
+            // standalone), resign the side to move.
+            let color: Side
+            if let c = req.agent, case .agent(let id) = game.whiteSeat, id == c { color = .w }
+            else if let c = req.agent, case .agent(let id) = game.blackSeat, id == c { color = .b }
+            else { color = game.position.turn }
+            do { try game.resign(color, by: .agent); return Response(ok: true, state: game.snapshot(callerId: req.agent)) }
             catch { return Response(ok: false, error: "\(error)") }
         case "takeback":
             game.takeback(req.n ?? 1)
-            return Response(ok: true, state: game.snapshot())
+            return Response(ok: true, state: game.snapshot(callerId: req.agent))
         case "legal":
             return Response(ok: true, legal: game.legalList(from: req.square.flatMap(parseSquare)))
         case "say":
             game.setCoach(req.text ?? "")
-            return Response(ok: true, state: game.snapshot())
+            return Response(ok: true, state: game.snapshot(callerId: req.agent))
         case "help", "catalog":
             return Response(ok: true, message: helpText)
         default:
@@ -268,6 +294,11 @@ func runClient(_ argv: [String]) -> Never {
         fail("unknown command: \(cmd) (try: \(AppInfo.cli) help)")
     }
 
+    // Forward CLATCH_AGENT_ID so the app knows which agent is calling: it binds the
+    // caller to a seat on `new`, enforces seat ownership on `move`, and tells the
+    // caller its own color on `board`.
+    req.agent = ProcessInfo.processInfo.environment["CLATCH_AGENT_ID"].flatMap { $0.isEmpty ? nil : $0 }
+
     let resp: Response
     do { resp = try sendRequest(req) } catch { fail("\(error)") }
     guard resp.ok else { fail(resp.error ?? "rejected") }
@@ -286,9 +317,30 @@ func runClient(_ argv: [String]) -> Never {
     exit(0)
 }
 
+// MARK: - Dev: render the GUI to a PNG offscreen (no display needed)
+
+@MainActor
+func renderPreview(to path: String, kind: String) {
+    _ = NSApplication.shared
+    NSApp.setActivationPolicy(.accessory)
+    let game = Game(); game.applyPreview(kind)
+    let w = BoardMetrics.minWidth, h = BoardMetrics.minHeight
+    let renderer = ImageRenderer(content: BoardView(game: game, preview: true).frame(width: w, height: h))
+    renderer.scale = 2
+    guard let img = renderer.nsImage, let tiff = img.tiffRepresentation,
+          let rep = NSBitmapImageRep(data: tiff),
+          let png = rep.representation(using: .png, properties: [:]) else { fail("render failed") }
+    try? png.write(to: URL(fileURLWithPath: path))
+    print("rendered \(path)")
+}
+
 // MARK: - Dispatch
 
 switch first {
+case "render":
+    guard argv.count >= 2 else { fail("usage: \(AppInfo.cli) render <path> [vs|solo]") }
+    MainActor.assumeIsolated { renderPreview(to: argv[1], kind: argv.count > 2 ? argv[2] : "vs") }
+    exit(0)
 case "app":
     // Steam-exact bootstrap: only ever run under Clatch (or the standalone hatch).
     if clatchInit(appId: AppInfo.id) { exit(0) }

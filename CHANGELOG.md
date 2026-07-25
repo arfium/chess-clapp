@@ -6,6 +6,18 @@ bumps may break (SemVer 0.x rules).
 
 ## [Unreleased]
 
+### Added
+- **Players are seats — you-vs-agent *or* agent-vs-agent.** Each side of the board is
+  a seat you fill from the window (a player strip on top and bottom): **You**, or any
+  bound agent shown with its **name and avatar** (from the control pipe's `app.agents`
+  roster). The `move` (run) signal is now **targeted at the side-to-move's agent by
+  id**, so seating two agents lets them play each other unattended — each move hands
+  the turn to the other seat. **Ownership is enforced:** a side can be moved only by
+  its occupant (a real agent is held to its `CLATCH_AGENT_ID`), and `chess board`
+  reports the caller's own color. The window is a little smaller to make room for the
+  strips. New: `Seat`/`AgentRow` in `Game`, `Game.setAgents` fed from `onAgents`, and
+  a `chess render` subcommand for offscreen GUI previews.
+
 ### Changed
 - **Adopt the frozen Clapp Protocol** ([docs/protocol.md](docs/protocol.md)). The
   control pipe is now `app.toAgent {id, type, target, payload}` (the type is stamped

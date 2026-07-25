@@ -1,10 +1,18 @@
 import AppKit
 import SwiftUI
 
+/// Window sizing, shared with `main.swift` (the NSWindow) and the offscreen renderer,
+/// so all three agree on one geometry. Two player strips sandwich the board; the
+/// controls sit beneath. The board is the window's width, squared.
+enum BoardMetrics {
+    static let minSide: CGFloat = 560
+    static let stripHeight: CGFloat = 62
+    static let controlsHeight: CGFloat = 122
+    static var minWidth: CGFloat { minSide }
+    static var minHeight: CGFloat { minSide + stripHeight * 2 + controlsHeight }
+}
+
 private enum UI {
-    static let minSide: CGFloat = 680
-    static let controlsHeight: CGFloat = 148
-    static let outerRadius: CGFloat = 14
     static let buttonRadius: CGFloat = 10
     static let buttonHeight: CGFloat = 34
     static let controlPadding: CGFloat = 20
@@ -21,45 +29,187 @@ private enum UI {
     static let neutralButton = Color(red: 225 / 255, green: 225 / 255, blue: 223 / 255)
     static let text = Color(red: 33 / 255, green: 33 / 255, blue: 35 / 255)
     static let secondaryText = Color(red: 99 / 255, green: 99 / 255, blue: 103 / 255)
+    static let tertiaryText = Color(red: 150 / 255, green: 150 / 255, blue: 154 / 255)
     static let separator = Color.black.opacity(0.11)
     static let blue = Color(red: 0 / 255, green: 122 / 255, blue: 255 / 255)
     static let dangerFill = Color(red: 235 / 255, green: 220 / 255, blue: 217 / 255)
     static let dangerText = Color(red: 132 / 255, green: 36 / 255, blue: 33 / 255)
+
+    // Player-strip accents: a tint + ring on the side to move, and avatar backgrounds.
+    static let turnTint = blue.opacity(0.07)
+    static let turnRing = blue.opacity(0.85)
+    static let humanTint = Color(red: 90 / 255, green: 100 / 255, blue: 112 / 255)
+
+    /// A stable avatar background for an agent with no photo, chosen by id so the same
+    /// agent always gets the same color (and two agents rarely collide).
+    static func agentTint(_ id: String) -> Color {
+        let palette: [Color] = [
+            Color(red: 0.30, green: 0.53, blue: 0.90),
+            Color(red: 0.55, green: 0.36, blue: 0.86),
+            Color(red: 0.90, green: 0.45, blue: 0.30),
+            Color(red: 0.20, green: 0.62, blue: 0.53),
+            Color(red: 0.85, green: 0.36, blue: 0.55),
+        ]
+        var h = 5381
+        for b in id.utf8 { h = ((h << 5) &+ h) &+ Int(b) }
+        return palette[abs(h) % palette.count]
+    }
 }
 
 struct BoardView: View {
     @ObservedObject var game: Game
+    /// Offscreen render only: ImageRenderer can't rasterize a `Menu`, `ScrollView`, or
+    /// `LazyHStack`, so the preview swaps those for static equivalents (the live app
+    /// always runs with this false). Mirrors the other clapps' render hatch.
+    var preview = false
     @State private var selected: Int?
     @State private var orientationWhite = true
     @State private var promo: (from: Int, to: Int)?
+
+    private var bottomColor: Side { orientationWhite ? .w : .b }
+    private var topColor: Side { orientationWhite ? .b : .w }
 
     private var legalTargets: Set<Int> {
         guard let selected else { return [] }
         return Set(game.position.legalMoves(from: selected).map { $0.to })
     }
 
+    // Taps only move a HUMAN seat's pieces, and only on its turn — an agent seat plays
+    // over the CLI, so the board is look-only while it's the agent's move.
     private var interactive: Bool {
-        game.status == "playing" && game.position.turn == game.humanColor
+        game.status == "playing" && game.seat(for: game.position.turn) == .human
     }
 
     var body: some View {
         GeometryReader { proxy in
-            let side = max(UI.minSide, proxy.size.width)
+            let side = max(BoardMetrics.minSide, proxy.size.width)
 
             VStack(spacing: 0) {
+                playerStrip(color: topColor)      // opponent, across the board
                 board(side: side)
+                playerStrip(color: bottomColor)   // you (by default)
                 controls(width: side)
             }
-            .frame(width: side, height: side + UI.controlsHeight, alignment: .top)
+            .frame(width: side,
+                   height: side + BoardMetrics.stripHeight * 2 + BoardMetrics.controlsHeight,
+                   alignment: .top)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(UI.surface)
         }
-        .frame(minWidth: UI.minSide, minHeight: UI.minSide + UI.controlsHeight)
+        .frame(minWidth: BoardMetrics.minWidth, minHeight: BoardMetrics.minHeight)
         .background(UI.surface)
         .sheet(isPresented: Binding(get: { promo != nil }, set: { if !$0 { promo = nil } })) {
             promoPicker
         }
     }
+
+    // MARK: - Player strips
+
+    /// One side's player: avatar + name + which color, and a menu to reseat it (You,
+    /// or any agent in the roster). Highlights when it is this side's turn.
+    private func playerStrip(color: Side) -> some View {
+        let seat = game.seat(for: color)
+        let isTurn = game.status == "playing" && game.position.turn == color
+        return Group {
+            if preview {
+                stripLabel(color: color, seat: seat, isTurn: isTurn)
+            } else {
+                Menu {
+                    Button { game.chooseSeat(color, .human) } label: { Label("You", systemImage: "person.fill") }
+                    if !game.agents.isEmpty {
+                        Divider()
+                        ForEach(game.agents) { a in
+                            Button { game.chooseSeat(color, .agent(a.id)) } label: { Text(a.name) }
+                        }
+                    }
+                } label: {
+                    stripLabel(color: color, seat: seat, isTurn: isTurn)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: BoardMetrics.stripHeight)
+        .background(isTurn ? UI.turnTint : UI.surface)
+    }
+
+    private func stripLabel(color: Side, seat: Seat, isTurn: Bool) -> some View {
+        let info = seatInfo(color: color, seat: seat, isTurn: isTurn)
+        return HStack(spacing: 12) {
+            AvatarView(image: info.avatar, monogram: info.monogram, systemImage: info.systemImage,
+                       size: 42, ring: isTurn ? UI.turnRing : nil, tint: info.tint)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(info.title)
+                    .font(.system(size: 15.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(UI.text)
+                    .lineLimit(1)
+                Text(info.subtitle)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(info.subtitleColor)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            colorChip(color)
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(UI.tertiaryText)
+        }
+        .padding(.horizontal, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    private struct SeatInfo {
+        var title: String
+        var subtitle: String
+        var subtitleColor: Color
+        var avatar: NSImage?
+        var monogram: String
+        var systemImage: String?
+        var tint: Color
+    }
+
+    private func seatInfo(color: Side, seat: Seat, isTurn: Bool) -> SeatInfo {
+        switch seat {
+        case .human:
+            return SeatInfo(
+                title: "You",
+                subtitle: isTurn ? "your move" : "human",
+                subtitleColor: isTurn ? UI.blue : UI.secondaryText,
+                avatar: nil, monogram: "", systemImage: "person.fill",
+                tint: UI.humanTint)
+        case .agent(let id):
+            guard let a = game.agent(forId: id) else {
+                return SeatInfo(
+                    title: "Agent", subtitle: "offline",
+                    subtitleColor: UI.tertiaryText,
+                    avatar: nil, monogram: "?", systemImage: nil, tint: UI.recessed)
+            }
+            return SeatInfo(
+                title: a.name,
+                subtitle: isTurn ? "thinking…" : (a.model ?? a.backend),
+                subtitleColor: isTurn ? UI.blue : UI.secondaryText,
+                avatar: AvatarCache.image(a.avatarPath),
+                monogram: String(a.name.prefix(1)).uppercased(),
+                systemImage: nil,
+                tint: UI.agentTint(a.id))
+        }
+    }
+
+    private func colorChip(_ color: Side) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(color == .w ? Color.white : Color(white: 0.16))
+                .frame(width: 12, height: 12)
+                .overlay(Circle().stroke(Color.black.opacity(0.22), lineWidth: 1))
+            Text(color == .w ? "White" : "Black")
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(UI.secondaryText)
+        }
+    }
+
+    // MARK: - Board
 
     private func board(side: CGFloat) -> some View {
         let square = side / 8
@@ -82,34 +232,7 @@ struct BoardView: View {
             coordinateOverlay(side: side)
         }
         .frame(width: side, height: side)
-        .clipShape(boardShape)
-        .overlay {
-            boardShape.stroke(Color.black.opacity(0.12), lineWidth: 1)
-        }
-    }
-
-    private var boardShape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            cornerRadii: RectangleCornerRadii(
-                topLeading: UI.outerRadius,
-                bottomLeading: 0,
-                bottomTrailing: 0,
-                topTrailing: UI.outerRadius
-            ),
-            style: .continuous
-        )
-    }
-
-    private var controlsShape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            cornerRadii: RectangleCornerRadii(
-                topLeading: 0,
-                bottomLeading: UI.outerRadius,
-                bottomTrailing: UI.outerRadius,
-                topTrailing: 0
-            ),
-            style: .continuous
-        )
+        .overlay(Rectangle().stroke(Color.black.opacity(0.10), lineWidth: 1))
     }
 
     private func boardSquares(side: CGFloat) -> some View {
@@ -240,89 +363,63 @@ struct BoardView: View {
             return
         }
 
-        if interactive, let piece = game.position.board[sq], piece.color == game.humanColor {
+        if interactive, let piece = game.position.board[sq], piece.color == game.position.turn {
             selected = sq
         } else {
             selected = nil
         }
     }
 
+    // MARK: - Controls
+
     private func controls(width: CGFloat) -> some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 14) {
-                statusBlock
-                    .frame(width: 154, alignment: .leading)
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                Text(statusText)
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .foregroundStyle(statusColor)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                Rectangle()
-                    .fill(UI.separator)
-                    .frame(width: 1, height: 44)
-
-                HStack(spacing: 8) {
-                    actionButton("Play White", width: 100, tone: .primary) {
-                        game.newGame(humanColor: .w)
-                        orientationWhite = true
-                    }
-                    actionButton("Play Black", width: 100, tone: .neutral) {
-                        game.newGame(humanColor: .b)
-                        orientationWhite = false
-                    }
-                    actionButton("Takeback", width: 92, tone: .neutral, disabled: game.history.isEmpty) {
-                        game.takeback(1)
-                    }
-                    actionButton("Resign", width: 76, tone: .danger, disabled: game.status != "playing") {
-                        try? game.resign(game.humanColor, by: .user)
-                    }
-                    Button {
-                        orientationWhite.toggle()
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(width: 40, height: UI.buttonHeight)
-                    }
-                    .buttonStyle(ArfButtonStyle(tone: .neutral, disabled: false))
-                    .help("Flip board")
+                actionButton(game.status == "playing" ? "New" : "New Game",
+                             width: game.status == "playing" ? 68 : 104, tone: .primary) {
+                    startNewGame()
                 }
-                .fixedSize(horizontal: true, vertical: false)
-
-                Spacer(minLength: 0)
+                iconButton("arrow.up.arrow.down", help: "Flip board") { orientationWhite.toggle() }
+                actionButton("Takeback", width: 92, tone: .neutral, disabled: game.history.isEmpty) {
+                    game.takeback(1)
+                }
+                actionButton("Resign", width: 78, tone: .danger, disabled: game.status != "playing") {
+                    try? game.resign(resignColor, by: .user)
+                }
             }
-            .frame(height: 48)
+            .frame(height: UI.buttonHeight)
 
-            HStack(spacing: 14) {
-                Text("Moves")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(UI.secondaryText)
-                    .frame(width: 64, alignment: .leading)
-                movesRail
-            }
-            .frame(height: 42)
+            movesRail
         }
         .padding(.top, 14)
         .padding(.horizontal, UI.controlPadding)
-        .frame(width: width, height: UI.controlsHeight, alignment: .top)
-        .background(controlsShape.fill(UI.surface))
-        .clipShape(controlsShape)
+        .frame(width: width, height: BoardMetrics.controlsHeight, alignment: .top)
+        .background(UI.surface)
         .overlay(alignment: .top) {
-            Rectangle()
-                .fill(UI.separator)
-                .frame(height: 1)
+            Rectangle().fill(UI.separator).frame(height: 1)
         }
     }
 
-    private var statusBlock: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(statusText)
-                .font(.system(size: 19, weight: .semibold, design: .rounded))
-                .foregroundStyle(UI.text)
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
+    /// Reset to the start position with the current seats, orienting a lone human to
+    /// the bottom of the board. If White is an agent, `Game.newGame` wakes it to open.
+    private func startNewGame() {
+        if game.whiteSeat == .human && game.blackSeat != .human { orientationWhite = true }
+        else if game.blackSeat == .human && game.whiteSeat != .human { orientationWhite = false }
+        game.newGame()
+    }
 
-            Text(colorSummary)
-                .font(.system(size: 13, weight: .medium, design: .rounded))
-                .foregroundStyle(UI.secondaryText)
-                .lineLimit(1)
-                .minimumScaleFactor(0.82)
-        }
+    /// Resign the human's side; in hotseat or agent-vs-agent, resign the side to move.
+    private var resignColor: Side {
+        if game.whiteSeat == .human && game.blackSeat != .human { return .w }
+        if game.blackSeat == .human && game.whiteSeat != .human { return .b }
+        return game.position.turn
     }
 
     private func actionButton(
@@ -343,42 +440,64 @@ struct BoardView: View {
         .disabled(disabled)
     }
 
-    private var movesRail: some View {
-        ScrollView(.horizontal) {
-            LazyHStack(spacing: 7) {
-                if movePairs.isEmpty {
-                    Text("No moves yet")
-                        .font(.system(size: 15, weight: .medium, design: .rounded))
-                        .foregroundStyle(UI.secondaryText)
-                        .frame(height: 34)
-                } else {
-                    ForEach(movePairs, id: \.0) { number, white, black in
-                        HStack(spacing: 7) {
-                            Text("\(number).")
-                                .foregroundStyle(UI.secondaryText)
-                            Text(white.isEmpty ? "..." : white)
-                                .foregroundStyle(UI.text)
-                            if !black.isEmpty {
-                                Text(black)
-                                    .foregroundStyle(UI.text)
-                            }
-                        }
-                        .font(.system(size: 14, weight: .semibold, design: .monospaced))
-                        .lineLimit(1)
-                        .padding(.horizontal, 10)
-                        .frame(height: 34)
-                        .background(UI.recessed)
-                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+    private func iconButton(_ system: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: system)
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 40, height: UI.buttonHeight)
         }
-        .scrollIndicators(.hidden)
+        .buttonStyle(ArfButtonStyle(tone: .neutral, disabled: false))
+        .help(help)
+    }
+
+    private var movesRail: some View {
+        Group {
+            if preview {
+                HStack(spacing: 7) { movesContent }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .clipped()
+            } else {
+                ScrollView(.horizontal) {
+                    LazyHStack(spacing: 7) { movesContent }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                }
+                .scrollIndicators(.hidden)
+            }
+        }
         .frame(height: 40)
-        .padding(.horizontal, 12)
         .background(UI.recessed.opacity(0.64))
         .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var movesContent: some View {
+        if movePairs.isEmpty {
+            Text("No moves yet")
+                .font(.system(size: 15, weight: .medium, design: .rounded))
+                .foregroundStyle(UI.secondaryText)
+                .frame(height: 34)
+        } else {
+            ForEach(movePairs, id: \.0) { number, white, black in
+                HStack(spacing: 7) {
+                    Text("\(number).")
+                        .foregroundStyle(UI.secondaryText)
+                    Text(white.isEmpty ? "..." : white)
+                        .foregroundStyle(UI.text)
+                    if !black.isEmpty {
+                        Text(black)
+                            .foregroundStyle(UI.text)
+                    }
+                }
+                .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                .lineLimit(1)
+                .padding(.horizontal, 10)
+                .frame(height: 34)
+                .background(UI.recessed)
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            }
+        }
     }
 
     private var promoPicker: some View {
@@ -390,7 +509,7 @@ struct BoardView: View {
                     }
                     promo = nil
                 } label: {
-                    PieceIcon(piece: Piece(color: game.humanColor, type: type), side: 68)
+                    PieceIcon(piece: Piece(color: game.position.turn, type: type), side: 68)
                         .frame(width: 76, height: 76)
                         .background(UI.recessed)
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -405,19 +524,21 @@ struct BoardView: View {
     private var statusText: String {
         switch game.status {
         case "idle": return "Start a game"
-        case "checkmate": return "Checkmate: \(colorName(game.winner ?? .w)) wins"
+        case "checkmate": return "Checkmate — \(colorName(game.winner ?? .w)) wins"
         case "resigned": return "\(colorName(game.winner ?? .w)) wins"
-        case "stalemate": return "Stalemate"
+        case "stalemate": return "Stalemate — draw"
         case "draw": return "Draw"
         default:
-            return "\(colorName(game.position.turn)) to move" + (game.position.inCheck ? " - check" : "")
+            return game.position.inCheck ? "\(colorName(game.position.turn)) — check"
+                                         : "\(colorName(game.position.turn)) to move"
         }
     }
 
-    private var colorSummary: String {
-        game.status == "idle"
-            ? "Choose your side"
-            : "You: \(colorName(game.humanColor))   Agent: \(colorName(game.agentColor))"
+    private var statusColor: Color {
+        switch game.status {
+        case "checkmate", "resigned", "stalemate", "draw": return UI.text
+        default: return game.position.inCheck ? UI.dangerText : UI.secondaryText
+        }
     }
 
     private var movePairs: [(Int, String, String)] {
@@ -440,6 +561,52 @@ struct BoardView: View {
 
     private func fileLetter(_ file: Int) -> String {
         String(UnicodeScalar(UInt8(ascii: "a") + UInt8(file)))
+    }
+}
+
+// MARK: - Avatar
+
+private struct AvatarView: View {
+    let image: NSImage?
+    let monogram: String
+    let systemImage: String?
+    let size: CGFloat
+    let ring: Color?
+    let tint: Color
+
+    var body: some View {
+        ZStack {
+            if let image {
+                Image(nsImage: image).resizable().scaledToFill()
+            } else {
+                tint
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: size * 0.44, weight: .semibold))
+                        .foregroundStyle(.white)
+                } else {
+                    Text(monogram)
+                        .font(.system(size: size * 0.42, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(Circle().stroke(Color.black.opacity(0.10), lineWidth: 1))
+        .overlay(Circle().strokeBorder(ring ?? .clear, lineWidth: 2.5))
+    }
+}
+
+/// Small cache so a strip re-render doesn't re-read the avatar file each frame.
+private enum AvatarCache {
+    private static let cache = NSCache<NSString, NSImage>()
+    static func image(_ path: String?) -> NSImage? {
+        guard let path, !path.isEmpty else { return nil }
+        if let hit = cache.object(forKey: path as NSString) { return hit }
+        guard let img = NSImage(contentsOfFile: path) else { return nil }
+        cache.setObject(img, forKey: path as NSString)
+        return img
     }
 }
 
