@@ -188,10 +188,11 @@ struct BoardView: View {
             Image(systemName: "person.fill").font(.system(size: 11))
             Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
         }
-        .foregroundStyle(UI.secondaryText)
+        .foregroundStyle(UI.text)
         .frame(width: 50, height: 28)
-        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(UI.chip))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(UI.hairline, lineWidth: 1))
+        // A neutral button fill (like Takeback) — a distinct control, never white-on-white.
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(UI.neutralButton))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.black.opacity(0.07), lineWidth: 1))
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
