@@ -1,18 +1,12 @@
 {
-  "name": "chess",
-  "version": "0.1.0",
+  "name": "chess-clapp",
   "private": true,
-  "description": "chess-template — a Clatch app with a native macOS GUI and an agent CLI, kept in sync over one shared state.",
-  "scripts": {
-    "build": "swift build -c release --package-path native",
-    "verify": "scripts/verify.sh",
-    "rename": "scripts/rename.sh",
-    "package": "scripts/package.sh",
-    "validate": "scripts/package.sh >/dev/null && clatch validate dist",
-    "pack": "scripts/package.sh >/dev/null && clatch pack dist",
-    "icon": "swift scripts/render-icon.swift",
-    "dev-app": "scripts/macos-dev-app.sh",
-    "shortcut:macos": "scripts/macos-shortcut.sh",
-    "cli": "bin/chess"
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "vite build", "tauri": "tauri" },
+  "dependencies": { "@tauri-apps/api": "^2", "react": "^18.3.1", "react-dom": "^18.3.1" },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2", "@types/react": "^18.3.3", "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1", "typescript": "^5.5.3", "vite": "^5.4.0"
   }
 }

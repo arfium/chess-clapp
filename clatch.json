@@ -8,11 +8,13 @@
     "game",
     "chess"
   ],
-  "version": "0.1.0",
+  "version": "0.2.0",
   "protocol": 2,
   "icon": "assets/icon.png",
   "launch": {
     "macos": "bin/chess",
+    "windows": "bin/chess.exe",
+    "linux": "bin/chess",
     "args": [
       "app"
     ]
@@ -23,7 +25,7 @@
     "commands": [
       {
         "name": "board",
-        "about": "print the board, whose turn it is, the move list, and your color"
+        "about": "print the board, whose turn it is, the move list, and your colour"
       },
       {
         "name": "fen",
@@ -31,35 +33,23 @@
       },
       {
         "name": "legal",
-        "about": "list the legal moves, optionally from one square"
+        "about": "list the legal moves right now (from,to)"
       },
       {
         "name": "move",
-        "about": "make a move in UCI notation (e2e4, e7e8q)"
-      },
-      {
-        "name": "say",
-        "about": "show the human a short note by the board"
+        "about": "make a move in UCI notation (e2e4, e7e8q) — only on your turn"
       },
       {
         "name": "new",
-        "about": "start a new game, setting the human's color"
+        "about": "start a new game, setting the human's colour (you take the other)"
       },
       {
         "name": "resign",
-        "about": "resign the game (the agent's color)"
+        "about": "resign your side"
       },
       {
         "name": "takeback",
         "about": "undo the last n half-moves"
-      },
-      {
-        "name": "focus",
-        "about": "focus the app window"
-      },
-      {
-        "name": "close",
-        "about": "quit the app"
       }
     ],
     "signals": [
