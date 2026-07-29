@@ -14,6 +14,24 @@ use tokio::sync::Mutex;
 pub type SharedGame = Arc<Mutex<Game>>;
 const CLI: &str = "chess";
 
+/// The app's own mark, embedded so the bare executable can set its Dock/taskbar icon at
+/// runtime — there is no `.app` bundle to carry it (docs/ICONS.md, docs/PLAYBOOK.md).
+const ICON_PNG: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/icon.png"));
+
+/// Give this bare executable its own icon the moment the app comes up: the Dock on macOS,
+/// the window (hence taskbar) on Windows/Linux. Called on the main thread from `setup`.
+fn apply_icon(app: &AppHandle) {
+    clappkit::set_dock_icon(ICON_PNG);
+    #[cfg(not(target_os = "macos"))]
+    if let Some(w) = app.get_webview_window("main") {
+        if let Ok(img) = tauri::image::Image::from_bytes(ICON_PNG) {
+            let _ = w.set_icon(img);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    let _ = app;
+}
+
 pub fn run() {
     let game: SharedGame = Arc::new(Mutex::new(Game::default()));
 
@@ -27,6 +45,7 @@ pub fn run() {
         .manage(game.clone())
         .manage(control.clone())
         .setup(move |app| {
+            apply_icon(app.handle());
             spawn_ipc(game.clone(), control.clone(), app.handle().clone());
             Ok(())
         })
