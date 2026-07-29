@@ -11,7 +11,20 @@
   },
   "app": {
     "windows": [
-      { "title": "chess", "width": 600, "height": 760, "minWidth": 520, "minHeight": 680, "resizable": true }
+      {
+        "title": "chess",
+        "width": 576,
+        "height": 772,
+        "minWidth": 576,
+        "minHeight": 772,
+        "maxWidth": 576,
+        "maxHeight": 772,
+        "resizable": false,
+        "maximizable": false,
+        "fullscreen": false,
+        "center": true,
+        "theme": "Light"
+      }
     ],
     "security": { "csp": null }
   },

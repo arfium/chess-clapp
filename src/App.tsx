@@ -1,150 +1,199 @@
-import { useEffect, useMemo, useState } from "react";
-import { cmd, onState, type ChessState, type Player } from "./bridge";
+//! ArfChess — the window. A 1:1 port of `BoardView.swift`: a fixed 576 × 772 column of
+//! player strip · board · player strip · controls, pinned to the light palette.
+//!
+//! View-local state (selection, orientation, the promotion sheet) lives here exactly as
+//! it does in SwiftUI; everything else is the snapshot the Rust core hands back.
 
-const GLYPH: Record<string, string> = {
-  wP: "♙", wN: "♘", wB: "♗", wR: "♖", wQ: "♕", wK: "♔",
-  bP: "♟", bN: "♞", bB: "♝", bR: "♜", bQ: "♛", bK: "♚",
-};
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import {
+  EMPTY,
+  cmd,
+  onState,
+  prefetchAssets,
+  rankOf,
+  squareName,
+  type ChessState,
+  type Player,
+  type Req,
+  type Side,
+} from "./bridge";
+import { Board, PieceIcon } from "./Board";
+import { Controls } from "./Controls";
+import { PlayerStrip } from "./PlayerStrip";
 
-const EMPTY: ChessState = {
-  fen: "", turn: "w", status: "idle", result: null, winner: null, inCheck: false,
-  board: Array(64).fill(null), white: { kind: "empty" }, black: { kind: "empty" },
-  yourColor: null, last: null, legal: [], moves: [], seatsReady: false, hasHuman: false, agents: [],
-};
+const PROMO_TYPES: { letter: string; role: string }[] = [
+  { letter: "q", role: "Q" },
+  { letter: "r", role: "R" },
+  { letter: "b", role: "B" },
+  { letter: "n", role: "N" },
+];
 
 export default function App() {
-  const [s, setS] = useState<ChessState>(EMPTY);
-  const [sel, setSel] = useState<number | null>(null);
-  const [flip, setFlip] = useState(false);
+  const [state, setState] = useState<ChessState>(EMPTY);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [orientationWhite, setOrientationWhite] = useState(true);
+  const [promo, setPromo] = useState<{ from: number; to: number } | null>(null);
+  const [chaos, setChaos] = useState(false);
 
-  useEffect(() => {
-    let un: (() => void) | undefined;
-    onState(setS).then((f) => (un = f));
-    cmd({ cmd: "state" }).then(setS).catch(() => {});
-    return () => un?.();
+  // Two writers feed this window: the return value of our own `run_cmd`, and the `state`
+  // event the core pushes when an agent moves. They race — an invoke response that
+  // resolves late is OLDER than a snapshot that has already been pushed. Every snapshot
+  // carries a monotonic `rev`, so the stale one is simply dropped.
+  const rev = useRef(-1);
+  const apply = useCallback((next: ChessState) => {
+    if (!next || next.ok === false) return;
+    const r = typeof next.rev === "number" ? next.rev : 0;
+    if (r < rev.current) return;
+    rev.current = r;
+    setState(next);
   }, []);
 
-  const run = (req: unknown) => cmd(req).then(setS).catch(() => {});
+  useEffect(() => {
+    let dead = false;
+    let un: UnlistenFn | undefined;
+    onState(apply)
+      .then((f) => {
+        if (dead) f();
+        else un = f;
+      })
+      .catch(() => {});
+    cmd({ cmd: "state" }).then(apply).catch(() => {});
+    return () => {
+      dead = true;
+      un?.();
+    };
+  }, [apply]);
 
-  const bottom = flip ? "b" : "w";
-  const top = flip ? "w" : "b";
-  const humanTurn = s.status === "playing" && (s.turn === "w" ? s.white : s.black).kind === "human";
+  // The core owns the chaos flag. Optimistic on click, but reconciled against EVERY
+  // snapshot — a dropped or refused command can never leave the switch lying.
+  useEffect(() => {
+    setChaos(state.chaos === true);
+  }, [state]);
 
-  const targets = useMemo(() => new Set(sel === null ? [] : s.legal.filter((m) => m.from === sel).map((m) => m.to)), [sel, s.legal]);
+  // Warm every roster avatar as it arrives, so seating an agent never flashes a monogram.
+  useEffect(() => {
+    prefetchAssets([
+      ...state.agents.map((a) => a.avatar),
+      state.white.avatar,
+      state.black.avatar,
+    ]);
+  }, [state]);
 
-  function clickSquare(sq: number) {
-    if (sel !== null && targets.has(sq)) {
-      const piece = s.board[sel];
-      const promo = piece && piece[1] === "P" && (sq >= 56 || sq < 8) ? "q" : "";
-      run({ cmd: "move", uci: name(sel) + name(sq) + promo });
-      setSel(null);
-      return;
+  const run = (req: Req) => {
+    cmd(req).then(apply).catch(() => {});
+  };
+
+  const player = (c: Side): Player => (c === "w" ? state.white : state.black);
+  const bottomColor: Side = orientationWhite ? "w" : "b";
+  const topColor: Side = orientationWhite ? "b" : "w";
+  const isTurn = (c: Side) => state.status === "playing" && state.turn === c;
+  const interactive = state.status === "playing" && player(state.turn).kind === "human";
+
+  // ALWAYS the real legal moves — even in chaos, where you may land on a square with no dot.
+  const targets = useMemo(() => {
+    const out = new Set<number>();
+    if (selected === null) return out;
+    for (const m of state.legal) if (m.from === selected) out.add(m.to);
+    return out;
+  }, [selected, state.legal]);
+
+  const play = (from: number, to: number, promoLetter: string | null) => {
+    run({ cmd: "move", uci: squareName(from) + squareName(to) + (promoLetter ?? "") });
+  };
+
+  // BoardView.tap(_:) — ported line for line.
+  const tap = (sq: number) => {
+    if (selected !== null) {
+      const canLand = chaos ? sq !== selected : targets.has(sq);
+      if (canLand) {
+        const piece = state.board[selected];
+        if (piece && piece[1] === "P" && (rankOf(sq) === 7 || rankOf(sq) === 0)) {
+          setPromo({ from: selected, to: sq });
+          setSelected(null);
+          return;
+        }
+        play(selected, sq, null);
+        setSelected(null);
+        return;
+      }
     }
-    const p = s.board[sq];
-    if (humanTurn && p && p[0] === s.turn) setSel(sq);
-    else setSel(null);
-  }
+    const piece = state.board[sq];
+    if (interactive && piece && piece[0] === state.turn) setSelected(sq);
+    else setSelected(null);
+  };
 
-  function newGame() {
-    if (s.white.kind === "human" && s.black.kind !== "human") setFlip(false);
-    else if (s.black.kind === "human" && s.white.kind !== "human") setFlip(true);
+  const startNewGame = () => {
+    const w = state.white.kind;
+    const b = state.black.kind;
+    if (w === "human" && b !== "human") setOrientationWhite(true);
+    else if (b === "human" && w !== "human") setOrientationWhite(false);
     run({ cmd: "new" });
-  }
+  };
 
   return (
-    <div className="app">
-      <Strip color={top} player={top === "w" ? s.white : s.black} turn={s.turn} status={s.status} agents={s.agents} onSeat={(who) => run({ cmd: "seat", color: top, who })} />
-      <Board state={s} bottom={bottom} sel={sel} targets={targets} onClick={clickSquare} />
-      <Strip color={bottom} player={bottom === "w" ? s.white : s.black} turn={s.turn} status={s.status} agents={s.agents} onSeat={(who) => run({ cmd: "seat", color: bottom, who })} />
-      <div className="controls">
-        <span className="status">{statusText(s)}</span>
-        <div className="btns">
-          <button className="primary" disabled={!s.seatsReady} onClick={newGame}>New Game</button>
-          <button onClick={() => setFlip((f) => !f)} title="Flip board">⇅</button>
-          <button className="danger" disabled={s.status !== "playing"} onClick={() => run({ cmd: s.hasHuman ? "resign" : "end" })}>
-            {s.hasHuman ? "Resign" : "End"}
-          </button>
+    <div className="win">
+      <PlayerStrip
+        color={topColor}
+        player={player(topColor)}
+        agents={state.agents}
+        isTurn={isTurn(topColor)}
+        menuUp={false}
+        onSeat={(who) => run({ cmd: "seat", color: topColor, who })}
+      />
+
+      <Board
+        state={state}
+        orientationWhite={orientationWhite}
+        selected={selected}
+        targets={targets}
+        onTap={tap}
+      />
+
+      <PlayerStrip
+        color={bottomColor}
+        player={player(bottomColor)}
+        agents={state.agents}
+        isTurn={isTurn(bottomColor)}
+        menuUp
+        onSeat={(who) => run({ cmd: "seat", color: bottomColor, who })}
+      />
+
+      <Controls
+        state={state}
+        chaos={chaos}
+        orientationWhite={orientationWhite}
+        onNewGame={startNewGame}
+        onTakeback={() => run({ cmd: "takeback", n: 1 })}
+        onResign={() => run({ cmd: "resign" })}
+        onEndGame={() => run({ cmd: "end" })}
+        onChaos={(on) => {
+          setChaos(on);
+          run({ cmd: "chaos", on });
+        }}
+        onOrientation={setOrientationWhite}
+      />
+
+      {promo && (
+        <div className="sheet">
+          <div className="sheet__panel">
+            {PROMO_TYPES.map((t) => (
+              <button
+                key={t.letter}
+                type="button"
+                className="promo"
+                aria-label={t.role}
+                onClick={() => {
+                  play(promo.from, promo.to, t.letter);
+                  setPromo(null);
+                }}
+              >
+                <PieceIcon code={state.turn + t.role} side={64} />
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
-      <MoveList moves={s.moves} />
+      )}
     </div>
   );
-}
-
-function Board({ state, bottom, sel, targets, onClick }: { state: ChessState; bottom: string; sel: number | null; targets: Set<number>; onClick: (sq: number) => void }) {
-  const rows = [];
-  for (let r = 0; r < 8; r++) {
-    for (let c = 0; c < 8; c++) {
-      const rank = bottom === "w" ? 7 - r : r;
-      const file = bottom === "w" ? c : 7 - c;
-      const sq = rank * 8 + file;
-      const light = (rank + file) % 2 === 1;
-      const piece = state.board[sq];
-      const isSel = sel === sq;
-      const isTarget = targets.has(sq);
-      const isLast = state.last && (state.last.from === sq || state.last.to === sq);
-      rows.push(
-        <div
-          key={sq}
-          className={"sq" + (light ? " light" : " dark") + (isSel ? " sel" : "") + (isLast ? " last" : "")}
-          onClick={() => onClick(sq)}
-        >
-          {piece && <span className="pc">{GLYPH[piece] ?? ""}</span>}
-          {isTarget && <span className={piece ? "cap" : "dot"} />}
-        </div>
-      );
-    }
-  }
-  return <div className="board">{rows}</div>;
-}
-
-function Strip({ color, player, turn, status, agents, onSeat }: { color: string; player: Player; turn: string; status: string; agents: { id: string; name: string }[]; onSeat: (who: string) => void }) {
-  const isTurn = status === "playing" && turn === color;
-  const label = player.kind === "empty" ? "Choose player" : player.kind === "human" ? "You" : player.name ?? "Agent";
-  const value = player.kind === "empty" ? "empty" : player.kind === "human" ? "human" : player.id ?? "";
-  const mono = (player.kind === "agent" ? player.name : player.kind === "human" ? "You" : "?")?.[0]?.toUpperCase() ?? "?";
-  return (
-    <div className={"strip" + (isTurn ? " on" : "")}>
-      <div className={"ava " + player.kind}>{player.kind === "empty" ? "+" : mono}</div>
-      <div className="who">
-        <div className="nm">{label}</div>
-        <div className="sub">{isTurn ? "to move" : player.kind === "agent" ? "agent" : player.kind === "human" ? "human" : " "}</div>
-      </div>
-      <span className={"chip " + (color === "w" ? "wc" : "bc")}>{color === "w" ? "White" : "Black"}</span>
-      <select value={value} onChange={(e) => onSeat(e.target.value)}>
-        <option value="empty">Empty</option>
-        <option value="human">You</option>
-        {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-      </select>
-    </div>
-  );
-}
-
-function MoveList({ moves }: { moves: string[] }) {
-  const pairs = [];
-  for (let i = 0; i < moves.length; i += 2) pairs.push([i / 2 + 1, moves[i], moves[i + 1]]);
-  return (
-    <div className="movelist">
-      {pairs.length === 0 && <span className="empty">Moves will appear here</span>}
-      {pairs.map(([n, w, b]) => (
-        <span key={n as number} className="mv"><b>{n}.</b> {w} {b ?? ""}</span>
-      ))}
-    </div>
-  );
-}
-
-function name(sq: number): string {
-  return String.fromCharCode(97 + (sq % 8)) + (Math.floor(sq / 8) + 1);
-}
-
-function statusText(s: ChessState): string {
-  switch (s.status) {
-    case "idle": return s.seatsReady ? "Ready — press New Game" : "Pick both players";
-    case "checkmate": return `Checkmate — ${s.winner === "w" ? "White" : "Black"} wins`;
-    case "resigned": return `${s.winner === "w" ? "White" : "Black"} wins`;
-    case "stalemate": return "Stalemate — draw";
-    case "draw": return "Draw";
-    case "ended": return "Game ended";
-    default: return s.inCheck ? `${s.turn === "w" ? "White" : "Black"} — check` : `${s.turn === "w" ? "White" : "Black"} to move`;
-  }
 }

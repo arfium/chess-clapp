@@ -7,19 +7,26 @@ const CLI: &str = "chess";
 
 const HELP: &str = "\
 chess — play chess. The human drives a window; you drive this CLI on the same live game.
-Each side of the board is a SEAT the human fills in the window: You, a specific agent, or
-(both agents) agent-vs-agent. You are woken with a `move` signal when it is YOUR turn;
-read the board, then play. You may move ONLY on your turn — the app enforces it.
+
+Each side of the board is a SEAT — White or Black — and the human assigns the seats in
+the window: You, a specific agent, or (both seats agents) agent-vs-agent. You are woken
+only when it is YOUR seat's turn: Clatch delivers a `move` signal, you read the real
+board with `board` (it prints \"you are White/Black\"), then play with `move`. You may
+move ONLY on your turn — the app enforces it, so in an agent-vs-agent game neither side
+can move for the other. If you were not given a seat, `board` won't say a colour; don't move.
 
 usage:
-  chess board                 the board, whose turn, the move list, your colour
-  chess fen                   the position as FEN
-  chess legal                 the legal moves right now (from,to)
-  chess move <uci>            play a move: e2e4, g1f3, e7e8q (promotion)
-  chess new [white|black]     start a new game (sets the HUMAN's colour; you take the other)
-  chess resign                resign your side
+  chess board                 print the board, whose turn, the move list, your colour
+  chess fen                   print the current position as FEN
+  chess legal [square]        list legal moves (optionally from one square)
+  chess move <uci>            make your move: e2e4, g1f3, e7e8q (promotion)
+  chess say \"<text>\"          show the human a short note by the board
+  chess new [white|black|random]   start a new game (sets the HUMAN's colour)
+  chess resign                resign the game (your colour)
   chess takeback [n]          undo the last n half-moves (default 1)
-  chess help                  this manual";
+  chess focus                 focus the running app window
+  chess close                 quit the app
+  chess help                  this help";
 
 pub async fn run(args: Vec<String>) -> ! {
     let verb = args.first().map(String::as_str).unwrap_or("help");
@@ -33,11 +40,20 @@ pub async fn run(args: Vec<String>) -> ! {
         }
         "board" | "state" => json!({ "cmd": "state", "agent": agent }),
         "fen" => json!({ "cmd": "fen" }),
-        "legal" => json!({ "cmd": "legal" }),
+        "legal" => json!({ "cmd": "legal", "square": rest.first().cloned() }),
         "move" => json!({ "cmd": "move", "uci": rest.first().cloned().unwrap_or_default(), "agent": agent }),
+        "say" => {
+            if rest.is_empty() {
+                eprintln!("usage: chess say \"<text>\"");
+                std::process::exit(1);
+            }
+            json!({ "cmd": "say", "text": rest.join(" "), "agent": agent })
+        }
         "new" => json!({ "cmd": "new", "color": rest.first().cloned().unwrap_or_else(|| "white".into()), "agent": agent }),
         "resign" => json!({ "cmd": "resign", "agent": agent }),
         "takeback" => json!({ "cmd": "takeback", "n": rest.first().and_then(|s| s.parse::<u64>().ok()).unwrap_or(1) }),
+        "focus" => json!({ "cmd": "focus" }),
+        "close" => json!({ "cmd": "quit" }),
         other => {
             eprintln!("chess: unknown command '{other}' (try: chess help)");
             std::process::exit(1);
@@ -75,20 +91,23 @@ fn print_result(verb: &str, v: &Value) {
         }
         return;
     }
+    // No state came back at all — `focus` / `close` answer with a bare ok (+ message).
+    let Some(board) = v.get("board").and_then(Value::as_array) else {
+        println!("{}", v.get("message").and_then(Value::as_str).unwrap_or("ok"));
+        return;
+    };
     // board view
-    if let Some(board) = v.get("board").and_then(Value::as_array) {
-        for rank in (0..8).rev() {
-            let mut line = format!("{}  ", rank + 1);
-            for file in 0..8 {
-                let sq = (rank * 8 + file) as usize;
-                let cell = board.get(sq).and_then(Value::as_str).unwrap_or("");
-                let g = if cell.is_empty() { ". ".to_string() } else { glyph(cell) };
-                line.push_str(&g);
-            }
-            println!("{}", line.trim_end());
+    for rank in (0..8).rev() {
+        let mut line = format!("{}  ", rank + 1);
+        for file in 0..8 {
+            let sq = (rank * 8 + file) as usize;
+            let cell = board.get(sq).and_then(Value::as_str).unwrap_or("");
+            let g = if cell.is_empty() { ". ".to_string() } else { glyph(cell) };
+            line.push_str(&g);
         }
-        println!("   a b c d e f g h");
+        println!("{}", line.trim_end());
     }
+    println!("   a b c d e f g h");
     let status = v.get("status").and_then(Value::as_str).unwrap_or("");
     let turn = v.get("turn").and_then(Value::as_str).unwrap_or("w");
     match status {
@@ -107,7 +126,7 @@ fn print_result(verb: &str, v: &Value) {
                 if i % 2 == 0 {
                     line.push_str(&format!(" {}.", i / 2 + 1));
                 }
-                line.push_str(&format!(" {}", m.as_str().unwrap_or("")));
+                line.push_str(&format!(" {}", m.get("san").and_then(Value::as_str).unwrap_or("")));
             }
             println!("{line}");
         }
@@ -120,6 +139,12 @@ fn print_result(verb: &str, v: &Value) {
             line.push_str(&format!("   (you are {})", color_word(yc)));
         }
         println!("{line}");
+    }
+    if v.get("chaos").and_then(Value::as_bool) == Some(true) {
+        println!("⚠ chaos mode: illegal moves are allowed (rules & check off)");
+    }
+    if let Some(note) = v.get("coach").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+        println!("note: {note}");
     }
 }
 

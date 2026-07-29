@@ -1,75 +1,711 @@
+/* ArfChess — every value is a literal from BoardView.swift. The window is pinned to a
+   light appearance in AppKit, so nothing here may follow `prefers-color-scheme`:
+   the palette is hard-coded and `color-scheme: light` keeps form controls in step. */
+
 :root {
   color-scheme: light;
-  --bg: #f3f2ef;
-  --panel: #ffffff;
-  --text: #201f1c;
-  --dim: #6c6862;
-  --line: rgba(0, 0, 0, 0.12);
-  --light: #ecedcf;
-  --dark: #6f8f50;
-  --sel: #f5d57a;
-  --last: rgba(245, 205, 110, 0.55);
+
+  /* board */
+  --board-light: #ecedd0;
+  --board-dark: #6f8f50;
+  --selected: #f5d57a;
+  --last-move: rgba(245, 205, 110, 0.5);
+  --target: rgba(0, 0, 0, 0.24);
+
+  /* surfaces + text */
+  --surface: #f4f3f0;
+  --recessed: rgba(0, 0, 0, 0.06);
+  --chip: #ffffff;
+  --neutral-button: #e4e3df;
+  --text: #1e1d1b;
+  --secondary-text: #6c6862;
+  --tertiary-text: #96928b;
+  --hairline: rgba(0, 0, 0, 0.13);
+
+  /* two quiet, warm accents — no green, no blue */
   --ink: #2b2926;
-  --amber: #b78234;
-  --danger: #ad3329;
+  --active: #b78234;
+  --active-text: #8c611e;
+  --danger-fill: #ede0dd;
+  --danger-text: #ad3329;
+  --turn-bg: #e8e7e4; /* rgba(0,0,0,0.05) over surface */
+
+  /* SwiftUI asks for `design: .rounded` everywhere, so EVERY rounded face comes first:
+     a non-rounded system font may only win when no rounded one exists at all. (The old
+     chain put "SF Pro Text" third, which matched before the rounded fallbacks.) */
+  --font-rounded: ui-rounded, "SF Pro Rounded", "SF Compact Rounded", ".SF NS Rounded",
+    system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, monospace;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
+
+html,
 body {
   margin: 0;
-  font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
-  background: var(--bg); color: var(--text);
-  -webkit-user-select: none; user-select: none;
+  padding: 0;
+  width: 576px;
+  height: 772px;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-rounded);
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
 }
-.app { max-width: 640px; margin: 0 auto; padding: 12px 14px; }
 
-/* Player strips */
-.strip { display: flex; align-items: center; gap: 11px; padding: 8px 4px; }
-.strip.on { background: rgba(183, 130, 52, 0.09); border-radius: 10px; }
-.ava {
-  width: 38px; height: 38px; border-radius: 50%; flex: none;
-  display: flex; align-items: center; justify-content: center;
-  color: #fff; font-weight: 700; font-size: 16px; background: #8a7a63;
+img {
+  -webkit-user-drag: none;
 }
-.ava.agent { background: #4a5580; }
-.ava.human { background: #5c6068; }
-.ava.empty { background: transparent; color: var(--dim); border: 1.5px dashed rgba(0,0,0,0.3); }
-.strip.on .ava { box-shadow: 0 0 0 2.5px var(--amber); }
-.who { flex: 1; min-width: 0; }
-.nm { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sub { font-size: 12px; color: var(--dim); }
-.strip.on .sub { color: var(--amber); font-weight: 600; }
-.chip { font-size: 12px; font-weight: 600; color: var(--dim); display: flex; align-items: center; gap: 5px; }
-.chip::before { content: ""; width: 11px; height: 11px; border-radius: 50%; border: 1px solid rgba(0,0,0,0.28); }
-.chip.wc::before { background: #ededea; }
-.chip.bc::before { background: #262626; }
-select { padding: 5px 6px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); font-size: 13px; }
 
-/* Board */
+button {
+  font-family: var(--font-rounded);
+  cursor: default;
+  color: inherit;
+}
+
+.win {
+  position: relative;
+  width: 576px;
+  height: 772px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  background: var(--surface);
+}
+
+/* text tiers */
+.t-text { color: var(--text); }
+.t-secondary { color: var(--secondary-text); }
+.t-tertiary { color: var(--tertiary-text); }
+.t-active { color: var(--active-text); }
+.t-danger { color: var(--danger-text); }
+
+/* ── Player strip (56) ─────────────────────────────────────────────────────── */
+
+.strip {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 0 24px;
+  background: var(--surface);
+}
+
+.strip--turn {
+  background: var(--turn-bg);
+}
+
+.strip__name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.strip__title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 19px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.strip__sub {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.strip__spacer {
+  flex: 1 0 10px;
+  min-width: 10px;
+}
+
+/* Avatar (40) */
+
+.avatar {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 40px;
+}
+
+.avatar__fill {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatar__photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.avatar__mono {
+  font-size: 16.8px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+}
+
+.avatar__glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatar__glyph--white {
+  color: #fff;
+}
+
+/* 1 pt stroke CENTRED on the 40 pt circle */
+.avatar__border {
+  position: absolute;
+  inset: -0.5px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.avatar__dash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* strokeBorder — painted entirely INSIDE the circle */
+.avatar__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2.5px var(--active);
+  pointer-events: none;
+}
+
+/* Colour chip */
+
+.chip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chip__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.3), inset 0 0 0 0.5px rgba(0, 0, 0, 0.3);
+}
+
+.chip__dot--w { background: #ededed; }
+.chip__dot--b { background: #292929; }
+
+.chip__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--secondary-text);
+}
+
+/* Seat picker */
+
+.picker {
+  position: relative;
+  flex: none;
+}
+
+.picker__pill {
+  width: 50px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--text);
+  background: var(--neutral-button);
+  /* SwiftUI strokes the rounded rect as an OVERLAY: the fill keeps the full 50 × 28 box.
+     A CSS border would eat 1 px of it (box-sizing: border-box), so ring it from inside. */
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.07);
+  border: 0;
+  border-radius: 8px;
+}
+
+.picker__pill:active {
+  background: #e7e6e2;
+}
+
+.picker__menu {
+  position: absolute;
+  right: 0;
+  z-index: 30;
+  min-width: 168px;
+  max-width: 250px;
+  max-height: 268px;
+  overflow-y: auto;
+  padding: 5px 0;
+  background: var(--chip);
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
+}
+
+.picker__menu--down { top: 31px; }
+.picker__menu--up { bottom: 31px; }
+
+.picker__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.picker__item:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.picker__item--danger {
+  color: var(--danger-text);
+}
+
+.picker__icon {
+  flex: none;
+  width: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.picker__text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.picker__sep {
+  height: 1px;
+  margin: 5px 0;
+  background: var(--hairline);
+}
+
+/* ── Board (528) ───────────────────────────────────────────────────────────── */
+
+.boardwrap {
+  flex: none;
+  height: 528px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  background: var(--surface);
+}
+
 .board {
-  display: grid; grid-template-columns: repeat(8, 1fr); aspect-ratio: 1;
-  width: 100%; border: 1px solid var(--line); border-radius: 6px; overflow: hidden;
+  position: relative;
+  width: 528px;
+  height: 528px;
 }
-.sq { position: relative; display: flex; align-items: center; justify-content: center; cursor: pointer; }
-.sq.light { background: var(--light); }
-.sq.dark { background: var(--dark); }
-.sq.last::after { content: ""; position: absolute; inset: 0; background: var(--last); }
-.sq.sel { box-shadow: inset 0 0 0 3px var(--sel); }
-.pc { position: relative; z-index: 2; font-size: 40px; line-height: 1; }
-.dot { position: absolute; z-index: 1; width: 26%; height: 26%; border-radius: 50%; background: rgba(0,0,0,0.24); }
-.cap { position: absolute; z-index: 1; inset: 8%; border-radius: 50%; border: 4px solid rgba(0,0,0,0.22); }
 
-/* Controls */
-.controls { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-.status { flex: 1; font-size: 16px; font-weight: 600; color: var(--text); }
-.btns { display: flex; gap: 8px; }
-button { cursor: pointer; border: none; font: inherit; font-size: 14px; font-weight: 600; padding: 8px 13px; border-radius: 8px; background: #e4e3df; color: var(--text); }
-button:hover { filter: brightness(0.97); }
-button:disabled { opacity: 0.4; cursor: default; }
-.primary { background: var(--ink); color: #fff; }
-.danger { background: #eddedd; color: var(--danger); }
+/* 1 pt hairline CENTRED on the board bounds */
+.board__edge {
+  position: absolute;
+  inset: -0.5px;
+  border: 1px solid var(--hairline);
+  pointer-events: none;
+}
 
-/* Move list */
-.movelist { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding: 8px; background: rgba(0,0,0,0.05); border-radius: 8px; min-height: 20px; }
-.mv { font-family: ui-monospace, monospace; font-size: 13px; background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; }
-.empty { color: var(--dim); font-size: 13px; }
+.sq {
+  position: absolute;
+  width: 66px;
+  height: 66px;
+  overflow: hidden;
+}
+
+.sq--light { background: var(--board-light); }
+.sq--dark { background: var(--board-dark); }
+
+.sq__last {
+  position: absolute;
+  inset: 0;
+  background: var(--last-move);
+}
+
+.piece {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.glyph {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  line-height: 1;
+  pointer-events: none;
+}
+
+/* empty target: a dot of side * 0.25 */
+.sq__dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 16.5px;
+  height: 16.5px;
+  margin: -8.25px 0 0 -8.25px;
+  border-radius: 50%;
+  background: var(--target);
+  pointer-events: none;
+}
+
+/* capture target: a ring, outer side * 0.905, inner side * 0.735 */
+.sq__ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 59.73px;
+  height: 59.73px;
+  margin: -29.865px 0 0 -29.865px;
+  border: 5.61px solid var(--target);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+/* selection: 3 pt stroke centred on a path inset 2 pt → band 0.5 → 3.5 */
+.sq__sel {
+  position: absolute;
+  inset: 0.5px;
+  border: 3px solid var(--selected);
+  pointer-events: none;
+}
+
+.coord {
+  position: absolute;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.coord--rank {
+  left: 10px;
+  top: 11px;
+  transform: translate(-50%, -50%);
+}
+
+.coord--file {
+  left: 56px;
+  top: 56px;
+  transform: translate(-50%, -50%);
+}
+
+/* ── Controls (132) ────────────────────────────────────────────────────────── */
+
+.controls {
+  position: relative;
+  flex: none;
+  width: 576px;
+  height: 132px;
+  padding: 12px 24px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  background: var(--surface);
+}
+
+/* full-bleed 1 pt rule at y = 0 — NOT inset by the gutter */
+.controls::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: var(--hairline);
+}
+
+.controls__row1 {
+  flex: none;
+  height: 31px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.status {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* `.lineLimit(1).minimumScaleFactor(f)` — the label shrinks inside a box that does not
+   move. `<FitText>` measures the natural width and sets the scale; below f it clips. */
+.fit {
+  display: inline-block;
+  max-width: none;
+  white-space: nowrap;
+}
+
+.btn {
+  flex: none;
+  height: 31px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  /* `.overlay(RoundedRectangle.stroke)` — an inset ring, NOT a border: the fill still
+     occupies the full 98 × 31 / 78 × 31 / 90 × 31 / 36 × 31 box, as in SwiftUI. */
+  border: 0;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+}
+
+.btn--new { width: 98px; }
+.btn--icon { width: 36px; }
+.btn--resign { width: 78px; }
+.btn--end { width: 90px; }
+
+.btn--primary {
+  background: var(--ink);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+  color: #fff;
+}
+
+.btn--neutral {
+  background: var(--neutral-button);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.07);
+  color: var(--text);
+}
+
+.btn--danger {
+  background: var(--danger-fill);
+  box-shadow: inset 0 0 0 1px rgba(173, 51, 41, 0.14);
+  color: var(--danger-text);
+}
+
+/* pressed: base at 80 % over the surface, plus a 0.98 scale */
+.btn--primary:not(:disabled):active { background: #53514e; transform: scale(0.98); }
+.btn--neutral:not(:disabled):active { background: #e7e6e2; transform: scale(0.98); }
+.btn--danger:not(:disabled):active { background: #eee4e1; transform: scale(0.98); }
+
+/* Moves rail */
+
+.moves {
+  flex: none;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  background: var(--recessed);
+  border-radius: 9px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.moves::-webkit-scrollbar {
+  display: none;
+}
+
+.moves__empty {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tertiary-text);
+  white-space: nowrap;
+}
+
+.mv {
+  flex: none;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  background: var(--chip);
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.mv__n {
+  color: var(--tertiary-text);
+}
+
+/* Options row */
+
+.controls__row3 {
+  flex: none;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.controls__spacer {
+  flex: 1 0 8px;
+  min-width: 8px;
+}
+
+.switchwrap {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.switch {
+  position: relative;
+  flex: none;
+  width: 28px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.switch--on {
+  background: var(--active);
+}
+
+.switch__knob {
+  position: absolute;
+  top: 2px;
+  left: 2.5px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: left 0.12s ease;
+}
+
+.switch--on .switch__knob {
+  left: 13.5px;
+}
+
+.switch__label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--secondary-text);
+  white-space: nowrap;
+}
+
+.viewlabel {
+  flex: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tertiary-text);
+}
+
+/* The whole options row is 22 pt tall in Swift, and the small segmented Picker sits
+   INSIDE it — so the track is clamped to 22, never the 23 that 2 + 19 + 2 would give. */
+.seg {
+  flex: none;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.09);
+}
+
+.seg__cell {
+  width: 50px;
+  height: 19px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--secondary-text);
+}
+
+.seg__cell--sel {
+  background: var(--chip);
+  color: var(--text);
+  box-shadow: 0 0.5px 0.5px rgba(0, 0, 0, 0.12);
+}
+
+/* ── Promotion sheet ───────────────────────────────────────────────────────── */
+
+/* A native macOS sheet: the content sits on UI.surface with 24 pt padding and 14 pt
+   spacing — no dimming behind it, no corner radius, no shadow. The full-window layer is
+   only there to swallow clicks (a sheet is modal, and this one has no cancel). */
+.sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+}
+
+.sheet__panel {
+  display: flex;
+  gap: 14px;
+  padding: 24px;
+  background: var(--surface);
+}
+
+.promo {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: var(--recessed);
+}
+
+.promo:active {
+  background: rgba(0, 0, 0, 0.1);
+}

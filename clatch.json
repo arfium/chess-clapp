@@ -33,11 +33,15 @@
       },
       {
         "name": "legal",
-        "about": "list the legal moves right now (from,to)"
+        "about": "list the legal moves right now (from,to), optionally from one square"
       },
       {
         "name": "move",
         "about": "make a move in UCI notation (e2e4, e7e8q) — only on your turn"
+      },
+      {
+        "name": "say",
+        "about": "show the human a short note by the board"
       },
       {
         "name": "new",
@@ -50,6 +54,14 @@
       {
         "name": "takeback",
         "about": "undo the last n half-moves"
+      },
+      {
+        "name": "focus",
+        "about": "focus the running app window"
+      },
+      {
+        "name": "close",
+        "about": "quit the app"
       }
     ],
     "signals": [
