@@ -393,7 +393,6 @@ name = "chess"
 version = "0.2.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
  "clappkit",
  "serde",
  "serde_json",
@@ -441,6 +440,7 @@ dependencies = [
  "objc",
  "serde",
  "serde_json",
+ "tauri",
  "tokio",
 ]
 

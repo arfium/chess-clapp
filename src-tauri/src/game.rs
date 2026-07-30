@@ -16,32 +16,16 @@ use shakmaty::{
     CastlingMode, Chess, Color, EnPassantMode, File, FromSetup, Move, Piece, Position, Role, Setup,
     Square,
 };
-use std::sync::atomic::{AtomicU64, Ordering};
-
-/// A signal for the control pipe, drained by the app (like clock's Emit).
-#[derive(Clone)]
-pub struct Emit {
-    pub id: String,          // "move" | "position" | "game.over"
-    pub target: Vec<String>, // agent ids ([] = broadcast)
-    pub payload: Value,
-}
+/// The signal an emit turns into (`move` | `position` | `game.over`) and the roster row
+/// the seats are drawn from both live in clappkit: four clapps had declared the same two
+/// structs, field for field, and the projections had already drifted apart.
+pub use clappkit::{AgentRow, Emit};
 
 #[derive(Clone, PartialEq)]
 pub enum Seat {
     Empty,
     Human,
     Agent(String), // agent id
-}
-
-/// One bound agent, projected from the Clatch roster. Keyed by `id`; everything else is
-/// display and MAY change between pushes. `avatar` is an absolute file path.
-#[derive(Clone, Default)]
-pub struct AgentRow {
-    pub id: String,
-    pub name: String,
-    pub backend: Option<String>,
-    pub model: Option<String>,
-    pub avatar: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -128,10 +112,6 @@ pub struct Game {
     /// A short note an agent left for the human (`chess say "…"`). Cleared by `new` and by
     /// every move, exactly like Swift's `Game.coach`.
     coach: Option<String>,
-    /// Monotonic snapshot revision. Bumped by EVERY `snapshot()`, so a higher `rev` always
-    /// means "taken later" — that is what lets the webview drop a stale invoke response
-    /// that lands after a newer pushed snapshot (the two writers race otherwise).
-    rev: AtomicU64,
 }
 
 impl Default for Game {
@@ -150,7 +130,6 @@ impl Default for Game {
             agents: Vec::new(),
             chaos: false,
             coach: None,
-            rev: AtomicU64::new(0),
         }
     }
 }
@@ -554,8 +533,10 @@ impl Game {
         json!({
             "ok": true,
             // Stamped BEFORE anything else is read: strictly increasing per snapshot, so
-            // the webview can discard any snapshot older than the one it already holds.
-            "rev": self.rev.fetch_add(1, Ordering::Relaxed) + 1,
+            // the webview can discard any snapshot older than the one it already holds
+            // (the invoke response and the pushed `state` event race). One process-wide
+            // counter in clappkit, because a clapp has one state.
+            "rev": clappkit::snapshot::next_rev(),
             "fen": self.pos.fen(),
             "turn": color_str(self.pos.turn()),
             "status": self.status,

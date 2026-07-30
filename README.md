@@ -1,18 +1,19 @@
 # chess
 
-**Play chess with your agents.** A native macOS window for you, a CLI for them,
+**Play chess with your agents.** A desktop window for you, a CLI for them,
 one live game. Each side of the board is a **seat** you fill from the window —
 **You**, or any bound **agent** (shown with its avatar) — so you can play an agent,
 or seat two agents and **watch them play each other**. Whoever's turn it is gets
 woken to move; your board updates instantly.
 
-A Clatch app has two faces over **one shared state**: a native **GUI** for the
-human and a **CLI** for the agents. Clatch launches the app, gives it an identity,
-and carries its signals to the agents — but it is **blind to the app's insides**.
-Keeping the two faces in sync is the app's job, over a private Unix socket.
+A Clatch app has two faces over **one shared state**: a **GUI** for the human and a
+**CLI** for the agents. Clatch launches the app, gives it an identity, and carries its
+signals to the agents — but it is **blind to the app's insides**. Keeping the two faces
+in sync is the app's job, over its own private socket (a Unix socket on macOS/Linux, a
+named pipe on Windows — never a TCP port).
 
 ```
-        ┌── native GUI ──┐   you click pieces
+        ┌──── GUI ───────┐   you click pieces
         │                │
    one live game ────────┤   ← single source of truth (Game)
         │                │
@@ -50,24 +51,38 @@ agent-vs-agent game neither side can ever move for the other.
 
 ## What's inside
 
-- **One binary, two roles.** `chess app` is the GUI process; `chess <verb>` is a
-  CLI client that talks to it. No second process, **no TCP port**.
-- **The two channels, wired and working:**
-  - the app's own **GUI↔CLI** Unix-domain socket (`IPC.swift`) — private to the app;
-  - the **Clatch↔App control pipe** (`ControlPipe.swift`) — register, signal, ping, shutdown.
-- **Typed signals** (the type lives in `clatch.json`, never on the wire):
-  `move` (declared `run` — wakes the agent to take its turn) and `game.over`
-  (declared `context` — queued into the agent's next turn).
-- **The Steam-exact bootstrap** (`clatch_init`) so the app runs only under Clatch,
-  plus the `CLATCH_STANDALONE=1` dev hatch.
+- **Rust + [Tauri v2](https://tauri.app) on [`clappkit`](../clappkit)**, the shared crate
+  every clapp is built from. The engine is [`shakmaty`](https://docs.rs/shakmaty) (legal
+  moves, SAN, FEN, mate/stalemate); the seats, the agent-vs-agent loop, the signals and
+  chaos mode are ours. The UI is React + TypeScript in the app's webview.
+- **One binary, two roles.** `chess app` is the GUI process; `chess <verb>` is a CLI
+  client that talks to it. No second process, **no TCP port**.
+- **The two channels, both from clappkit** — neither is app-owned code any more:
+  - the app's own **GUI↔CLI** channel (`clappkit::ipc`) — a Unix socket at
+    `~/.chess/chess.sock`, a named pipe on Windows; private to the app, Clatch never
+    sees it;
+  - the **Clatch↔App control pipe** (`clappkit::control`) — register, roster, signal,
+    ping, shutdown.
+- **Typed signals** (the type lives in `clatch.json`, and clappkit stamps it on the wire):
+  `move` (`run` — wakes the agent to take its turn), `position` (`buffered` — the live
+  board in each agent's chat buffer) and `game.over` (`context`).
+- **The Steam-exact bootstrap** (`clatch_init`, via `clappkit::role::main_dispatch`) so
+  the app runs only under Clatch, plus the `CLATCH_STANDALONE=1` dev hatch.
 
-The chess engine is self-contained (`Chess.swift`): legal moves, check/mate,
-FEN, SAN — no dependencies.
+`native/` still holds the original macOS **SwiftUI** implementation. It is no longer
+built or shipped — it is kept as the **behavioural reference** the Rust port is checked
+against (the parity tests in `src-tauri/src/game.rs` cite it).
 
-## Quickstart (macOS)
+**Platform honesty:** the code is cross-platform and `clatch.json` advertises macOS,
+Windows and Linux. macOS is the platform this has actually been built and run on;
+`scripts/package.sh` produces a correct Windows/Linux depot (including the `.exe` binary
+and `.exe` `cliBin`), but nobody has yet run it on those.
+
+## Quickstart
 
 ```sh
-npm run build                        # build the release binary
+npm ci
+npm run build                        # build the shippable binary (frontend embedded)
 npm run verify                       # build + package + validate + socket test → one green check
 
 # Try it without Clatch (the dev hatch):
@@ -78,13 +93,19 @@ bin/chess move e2e4                  # (as the side to move) make a move
 bin/chess help                       # the agent's manual
 ```
 
+> Build with `npm run build`, never a bare `cargo build --release`: the Tauri CLI is what
+> enables the `custom-protocol` feature that embeds the frontend in the binary. A plain
+> cargo build points the webview at the dev server and opens a white window on any
+> machine that is not running `npm run dev` (scripts/lib.sh spells this out, and
+> `scripts/package.sh` asserts the frontend really is embedded before packaging).
+
 ### Install it for real (end users)
 
 No source checkout — install from a published GitHub release:
 
 ```sh
 clatch install github:arfium/chess-clapp          # latest release
-clatch install github:arfium/chess-clapp@v0.1.0   # a specific version
+clatch install github:arfium/chess-clapp@v0.2.0   # a specific version
 ```
 
 (Or download `com.arfium.chess-macos-arm64.clapp` from the repo's **Releases** and
@@ -96,55 +117,63 @@ clatch agent grant <agent-name> app:com.arfium.chess
 clatch agent send <agent-name> "you're playing chess with me — check chess --help, then respond to my moves"
 ```
 
-(Dev-from-source path: `clatch install dist` after `npm run package`.)
+(Dev-from-source path: `clatch install pkg` after `npm run package`.)
 
 | command | does |
 |---|---|
-| `npm run build` | compile the release binary |
+| `npm run dev` | Vite dev server (with `npm run tauri dev` for the window) |
+| `npm run build` | build the shippable binary — frontend embedded |
 | `npm run verify` | build + package + validate + prove the two surfaces talk |
-| `npm run package` · `npm run validate` · `npm run pack` | dist folder · conformance oracle · `.clapp` depot |
+| `npm run package` · `npm run validate` · `npm run pack` | assemble `pkg/` · conformance oracle · `.clapp` depot |
+| `node scripts/check-manifest.mjs` | the manifest and the code still agree (CI's gate) |
+| `sh scripts/render-icon.sh` | re-render `assets/icon.png` + `src-tauri/icons/icon.ico` from `assets/icon.svg` |
+| `cargo test --manifest-path src-tauri/Cargo.toml` | the parity tests against the Swift original |
 
 ## The agent's verbs
 
-`chess --help` is the agent's only manual. Verbs: `board` · `fen` · `legal [square]`
+`chess --help` is the agent's only manual, and it documents **exactly** the ten verbs
+`clatch.json` declares — nothing more (an undeclared verb can never be granted, since
+`connector.commands` is the permission grain). Verbs: `board` · `fen` · `legal [square]`
 · `move <uci>` · `say "<text>"` · `new [white|black|random]` · `resign` ·
 `takeback [n]` · `focus` · `close`.
 
 ## Layout
 
 ```
-chess/
+chess-clapp/
 ├── clatch.json              the manifest (identity, launch, connector surface)
-├── bin/chess                dev entrypoint (build-if-needed → exec); the compiled binary inside dist/
-├── assets/icon.png          generated icon
-├── scripts/                 verify.sh · package.sh · macos-*.sh · render-icon.swift
-├── docs/                    ARCHITECTURE.md
-├── AGENTS.md · CLAUDE.md    how an agent operates the app
-└── native/
-    ├── Package.swift
-    └── Sources/chess/         ← the app is ArfChess; only the transport is generic
-        ├── AppInfo.swift    identity in ONE place (id, cli, signals)
-        ├── Bootstrap.swift  clatch_init: run only under Clatch          (transport)
-        ├── ControlPipe.swift  Clatch↔App control pipe (frozen protocol) (transport)
-        ├── IPC.swift          GUI↔CLI Unix socket                       (transport)
-        ├── Chess.swift        the chess engine (rules, FEN, SAN)        (ArfChess)
-        ├── Game.swift         the game — the single source of truth     (ArfChess)
-        ├── BoardView.swift    the SwiftUI board + cburnett-PNG pieces   (ArfChess)
-        ├── Protocol.swift     the GUI↔CLI request/response + state DTOs
-        ├── main.swift         dispatch + app delegate + CLI client
-        └── Resources/pieces/  cburnett PNG piece set (bundled)
+├── bin/chess                dev entrypoint (build-if-needed → exec); the compiled binary inside pkg/
+├── assets/icon.{svg,png}    the mark — icon.svg is the source, icon.png the render
+├── scripts/                 build · package · validate · pack · verify (shared lib.sh) ·
+│                            check-manifest.mjs · render-icon.sh · macos-*.sh
+├── docs/                    protocol.md (normative) · ARCHITECTURE.md
+├── AGENTS.md · CLAUDE.md    how an agent operates the app / orients in the repo
+├── index.html · src/        the webview: App.tsx · Board.tsx · PlayerStrip.tsx · Controls.tsx
+│                            · bridge.ts (the seam; the shared half is @clappkit)
+├── src-tauri/
+│   ├── Cargo.toml           depends on clappkit (features = ["tauri"]) + shakmaty
+│   ├── tauri.conf.json      the window (576×772, fixed) + the .ico for Windows
+│   ├── capabilities/        what the webview is allowed to call
+│   └── src/
+│       ├── main.rs          19 lines: clappkit::role::main_dispatch(APP_ID, …)
+│       ├── app.rs           the GUI process — the Game behind a mutex, and `apply`
+│       ├── cli.rs           the agent's CLI: verbs → the IPC envelope, and `--help`
+│       └── game.rs          the game — the single source of truth, and its parity tests
+└── native/                  the ORIGINAL SwiftUI app: the behavioural reference, not built
 ```
 
-The board is ArfChess's own: a lichess-style green/cream Canvas with cburnett PNG
-pieces (`BoardView`, `PieceArt` with a Unicode fallback) and a light native control
-bar. It is self-styled — no Clatch Phosphor theme, no bundled fonts.
+The board is ArfChess's own: a lichess-style green/cream board with cburnett pieces and
+a light native control bar, ported 1:1 from the SwiftUI original. It is self-styled — no
+Clatch Phosphor theme, no bundled fonts.
 
 ## The three that must agree
 
-`clatch.json`, `AppInfo.swift`, and the code agree on the app **id**
-(`com.arfium.chess`), the CLI **name** (`chess`), and the **signal** vocabulary
-(`move`, `position`, `game.over`, each with its type). `clatch validate` checks the
-manifest; keep the code in lockstep.
+`clatch.json`, the Rust, and `--help` agree on the app **id** (`com.arfium.chess`), the
+CLI **name** (`chess`), the **verbs**, and the **signal** vocabulary (`move`, `position`,
+`game.over`, each with its type). `clatch validate` checks the manifest against the files;
+**`node scripts/check-manifest.mjs` checks it against the code** — that it declares every
+verb `cli.rs` answers, documents each one in `--help`, declares every signal `game.rs`
+emits, and that the version is the same string in all four places it is written.
 
 > The frozen contract between Clatch and this clapp — the manifest and the control
 > pipe — is **[docs/protocol.md](docs/protocol.md)** (The Clapp Protocol). It is the

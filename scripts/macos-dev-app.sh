@@ -2,20 +2,23 @@
 # Wrap the release binary in a standalone .app you can double-click during dev.
 # This uses CLATCH_STANDALONE=1 (the dev hatch) — it does NOT go through Clatch.
 # Product launches always go through `clatch run com.arfium.chess`.
+#
+# Scratch output goes in build/, never dist/ (Vite's) or pkg/ (the Clatch depot).
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-APP="${1:-$ROOT/dist/ChessDev.app}"
+APP="${1:-$ROOT/build/ChessDev.app}"
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
-ICONSET="$ROOT/dist/chess-dev.iconset"
+ICONSET="$ROOT/build/chess-dev.iconset"
 
-swift build -c release --package-path "$ROOT/native" >/dev/null
+# `npm run build` — the Tauri build, which is the only one that embeds the frontend.
+(cd "$ROOT" && npm run --silent build >/dev/null)
 
 rm -rf "$APP" "$ICONSET"
 mkdir -p "$MACOS" "$RESOURCES" "$ICONSET"
-cp "$ROOT/native/.build/release/chess" "$MACOS/chess-bin"
+cp "$ROOT/src-tauri/target/release/chess" "$MACOS/chess-bin"
 cat >"$MACOS/chess" <<'EOF'
 #!/bin/sh
 DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
@@ -36,7 +39,7 @@ cat >"$CONTENTS/Info.plist" <<'EOF'
   <key>CFBundleIdentifier</key><string>com.arfium.chess.dev</string>
   <key>CFBundleName</key><string>Chess Dev</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleShortVersionString</key><string>0.2.0</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
 </dict>

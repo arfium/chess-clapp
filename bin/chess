@@ -1,14 +1,19 @@
 #!/usr/bin/env sh
-# Dev entrypoint: build-if-needed, then exec the real binary. In a packaged app
-# (dist/), this file is REPLACED by the compiled binary itself (see scripts/package.sh),
+# Dev entrypoint: build-if-needed, then exec the real binary. In the assembled depot
+# (pkg/), this file is REPLACED by the compiled binary itself (see scripts/package.sh),
 # so clatch.json can point `launch` and `connector.cliBin` at the same bin/chess path.
+#
+# `npm run build` is the build, not `cargo build --release`: the Tauri CLI is what turns
+# on the `custom-protocol` feature that embeds the frontend, and a plain cargo build
+# produces a binary that points the webview at the dev server instead (a white window on
+# any machine that is not running `npm run dev`). See scripts/lib.sh.
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-BIN="$ROOT/native/.build/release/chess"
+BIN="$ROOT/src-tauri/target/release/chess"
 
 if [ ! -x "$BIN" ]; then
-  (cd "$ROOT/native" && swift build -c release >/dev/null)
+  (cd "$ROOT" && npm run --silent build >/dev/null)
 fi
 
 exec "$BIN" "$@"

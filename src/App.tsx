@@ -4,15 +4,13 @@
 //! View-local state (selection, orientation, the promotion sheet) lives here exactly as
 //! it does in SwiftUI; everything else is the snapshot the Rust core hands back.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { UnlistenFn } from "@tauri-apps/api/event";
+import { useEffect, useMemo, useState } from "react";
 import {
   EMPTY,
-  cmd,
-  onState,
   prefetchAssets,
   rankOf,
   squareName,
+  useSnapshot,
   type ChessState,
   type Player,
   type Req,
@@ -30,40 +28,16 @@ const PROMO_TYPES: { letter: string; role: string }[] = [
 ];
 
 export default function App() {
-  const [state, setState] = useState<ChessState>(EMPTY);
+  // Two writers feed this window: the return value of our own `run_cmd`, and the `state`
+  // event the core pushes when an agent moves. They race — an invoke response that
+  // resolves late is OLDER than a snapshot that has already been pushed — so every
+  // snapshot carries a monotonic `rev` and `useSnapshot` (clappkit/web) drops the stale
+  // one. Subscribe, first snapshot on mount, clean unsubscribe: all of it is in there.
+  const { state, run } = useSnapshot<ChessState, Req>(EMPTY);
   const [selected, setSelected] = useState<number | null>(null);
   const [orientationWhite, setOrientationWhite] = useState(true);
   const [promo, setPromo] = useState<{ from: number; to: number } | null>(null);
   const [chaos, setChaos] = useState(false);
-
-  // Two writers feed this window: the return value of our own `run_cmd`, and the `state`
-  // event the core pushes when an agent moves. They race — an invoke response that
-  // resolves late is OLDER than a snapshot that has already been pushed. Every snapshot
-  // carries a monotonic `rev`, so the stale one is simply dropped.
-  const rev = useRef(-1);
-  const apply = useCallback((next: ChessState) => {
-    if (!next || next.ok === false) return;
-    const r = typeof next.rev === "number" ? next.rev : 0;
-    if (r < rev.current) return;
-    rev.current = r;
-    setState(next);
-  }, []);
-
-  useEffect(() => {
-    let dead = false;
-    let un: UnlistenFn | undefined;
-    onState(apply)
-      .then((f) => {
-        if (dead) f();
-        else un = f;
-      })
-      .catch(() => {});
-    cmd({ cmd: "state" }).then(apply).catch(() => {});
-    return () => {
-      dead = true;
-      un?.();
-    };
-  }, [apply]);
 
   // The core owns the chaos flag. Optimistic on click, but reconciled against EVERY
   // snapshot — a dropped or refused command can never leave the switch lying.
@@ -79,10 +53,6 @@ export default function App() {
       state.black.avatar,
     ]);
   }, [state]);
-
-  const run = (req: Req) => {
-    cmd(req).then(apply).catch(() => {});
-  };
 
   const player = (c: Side): Player => (c === "w" ? state.white : state.black);
   const bottomColor: Side = orientationWhite ? "w" : "b";

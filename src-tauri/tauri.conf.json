@@ -7,12 +7,13 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1421",
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "npm run build:web"
   },
   "app": {
     "windows": [
       {
-        "title": "chess",
+        "label": "main",
+        "title": "Chess",
         "width": 576,
         "height": 772,
         "minWidth": 576,

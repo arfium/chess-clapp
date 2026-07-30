@@ -2,11 +2,13 @@
 # Build a macOS .app whose only job is to run `clatch run com.arfium.chess` — a
 # double-clickable launcher that still goes THROUGH Clatch (unlike macos-dev-app.sh).
 # usage: scripts/macos-shortcut.sh /absolute/path/to/clatch [Chess.app]
+#
+# Scratch output goes in build/, never dist/ (Vite's) or pkg/ (the Clatch depot).
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 CLATCH_BIN="${1:-$(command -v clatch || true)}"
-APP="${2:-$ROOT/dist/Chess.app}"
+APP="${2:-$ROOT/build/Chess.app}"
 
 if [ -z "$CLATCH_BIN" ] || [ ! -x "$CLATCH_BIN" ]; then
   printf '%s\n' "usage: scripts/macos-shortcut.sh /absolute/path/to/clatch [Chess.app]" >&2
@@ -16,7 +18,7 @@ fi
 CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
-ICONSET="$ROOT/dist/chess.iconset"
+ICONSET="$ROOT/build/chess.iconset"
 
 rm -rf "$APP" "$ICONSET"
 mkdir -p "$MACOS" "$RESOURCES" "$ICONSET"
@@ -40,7 +42,7 @@ cat >"$CONTENTS/Info.plist" <<'EOF'
   <key>CFBundleIdentifier</key><string>com.arfium.chess.shortcut</string>
   <key>CFBundleName</key><string>Chess</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleShortVersionString</key><string>0.2.0</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
 </dict>

@@ -38,7 +38,11 @@ pub async fn run(args: Vec<String>) -> ! {
             println!("{HELP}");
             std::process::exit(0);
         }
-        "board" | "state" => json!({ "cmd": "state", "agent": agent }),
+        // Exactly the verbs `clatch.json` declares — nothing more. `connector.commands`
+        // is the permission grain (`Bash(chess board:*)`), so a verb that is implemented
+        // but undeclared is one no agent can ever be granted, and one `--help` cannot
+        // honestly advertise.
+        "board" => json!({ "cmd": "state", "agent": agent }),
         "fen" => json!({ "cmd": "fen" }),
         "legal" => json!({ "cmd": "legal", "square": rest.first().cloned() }),
         "move" => json!({ "cmd": "move", "uci": rest.first().cloned().unwrap_or_default(), "agent": agent }),

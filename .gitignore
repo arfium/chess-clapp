@@ -1,7 +1,4 @@
 .DS_Store
-native/.build/
-native/build/
-dist/
 *.app/
 *.log
 
@@ -12,8 +9,18 @@ dist/
 *.clapp
 *.clapp.sha256
 
-# Tauri / web build artifacts (tauri-test branch)
-node_modules/
+# The assembled Clatch depot — clatch.json + bin/ + assets/, built by
+# scripts/package.sh. This, not dist/, is what `clatch validate` / `clatch pack` read.
 /pkg/
+
+# Build output. dist/ is VITE's (src-tauri/tauri.conf.json frontendDist), build/ is
+# scratch for the macOS dev .app wrappers.
+dist/
+build/
+node_modules/
 src-tauri/target/
 src-tauri/gen/
+
+# The retired Swift implementation, kept as the behavioural reference (native/).
+native/.build/
+native/build/

@@ -3,10 +3,31 @@
   "private": true,
   "version": "0.2.0",
   "type": "module",
-  "scripts": { "dev": "vite", "build": "vite build", "tauri": "tauri" },
-  "dependencies": { "@tauri-apps/api": "^2", "react": "^18.3.1", "react-dom": "^18.3.1" },
+  "scripts": {
+    "dev": "vite",
+    "build": "scripts/build.sh",
+    "build:web": "vite build",
+    "package": "scripts/package.sh",
+    "validate": "scripts/validate.sh",
+    "pack": "scripts/pack.sh",
+    "verify": "scripts/verify.sh",
+    "check": "node scripts/check-manifest.mjs",
+    "typecheck": "tsc --noEmit",
+    "icon": "sh scripts/render-icon.sh",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
   "devDependencies": {
-    "@tauri-apps/cli": "^2", "@types/react": "^18.3.3", "@types/react-dom": "^18.3.0",
-    "@vitejs/plugin-react": "^4.3.1", "typescript": "^5.5.3", "vite": "^5.4.0"
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.5.3",
+    "vite": "^5.4.0"
   }
 }

@@ -6,6 +6,48 @@ bumps may break (SemVer 0.x rules).
 
 ## [Unreleased]
 
+### Changed
+- **Ported from macOS Swift/SwiftUI to Rust + Tauri v2 on the shared `clappkit` crate.**
+  Same app, same window, same verbs, same signals — a different implementation. The GUI
+  is a Tauri webview (React + TypeScript) rendering the same board 1:1; the engine is
+  now [`shakmaty`](https://docs.rs/shakmaty) instead of the hand-written `Chess.swift`;
+  the code lives in `src-tauri/src/{main,app,cli,game}.rs` and `src/`. `clatch.json`
+  gained `launch.windows` / `launch.linux` — the app is cross-platform now (macOS is
+  what has been built and run; the other two are reasoned, not yet exercised).
+  **`native/` stays in the repo** as the behavioural reference the port is checked
+  against, not as the build.
+- **The plumbing moved to `clappkit`** — one shared implementation instead of a copy per
+  clapp. Deleted here and adopted from there: the role dispatch in `main.rs`
+  (`role::main_dispatch`), the Dock/taskbar icon (`app::apply_icon`), the `asset`
+  data-URI bridge (`asset::data_uri`, which also removes the `base64` dependency), the
+  `ping`/`focus`/`close` window verbs (`window` + `app::window_cmd`), the
+  `run_cmd`→`state` relay (`app::spawn_ipc`), the roster projection
+  (`Control::roster()`, `AgentRow`), the signal batch (`Emit`, `Control::emit_all`), the
+  snapshot revision (`snapshot::next_rev`), and — in the webview — the invoke/listen
+  seam, the avatar cache and the rev-ordered snapshot wiring (`@clappkit`: `useSnapshot`,
+  `useAsset`, `prefetchAssets`, `agentTint`).
+- **`chess focus` now prints `window shown`** instead of `ok`, and the answer-then-exit
+  grace on `close` is 150 ms (was 120 ms) — both from the shared window policy. Cosmetic;
+  no verb changed shape.
+- **`chess state` is gone**; use `chess board` (it was an undocumented alias that
+  `clatch.json` never declared, so no agent could ever have been granted it). `--help`
+  now documents exactly the ten declared verbs, and `node scripts/check-manifest.mjs`
+  enforces that agreement.
+- The response and the pushed snapshot are now taken under **one lock** (`app.rs`'s
+  `apply` returns both), so the window can never be handed state from a different moment
+  than the caller's reply.
+- The depot is **`pkg/`**, not `dist/` — `dist/` is Vite's output, and the two used to
+  overwrite each other. `npm run package` / `validate` / `pack` all target `pkg/`.
+
+### Fixed
+- **`assets/icon.png` and `src-tauri/icons/icon.ico` were stale renders** of
+  `assets/icon.svg` — the pawn filled 66% × 81% of the canvas where the SVG says
+  80% × 99%, so chess read visibly undersized next to the other clapps on the shelf, on
+  every platform. Both are regenerated from the SVG by the new `scripts/render-icon.sh`.
+- Removed the template-only `scripts/rename.sh`, `scripts/render-icon.swift` and the
+  `/fork` command: in a shipped app the first renames it and the second overwrites its
+  mark with a generic monogram plate.
+
 ### Added
 - **Players are seats — you-vs-agent *or* agent-vs-agent.** Each side of the board is
   a seat you fill from the window (a player strip on top and bottom): **You**, or any
@@ -92,7 +134,7 @@ bumps may break (SemVer 0.x rules).
 - Signal **targeting** (tracks Clatch #77): `ControlPipe.emitSignal` takes an
   optional `target: [String]` — empty broadcasts (unchanged), non-empty delivers
   only to the named agents (still bounded by the cut matrix). The CLI now forwards
-  its `CLATCH_AGENT` to the app (`Request.agent`), and `AppState` records the caller
+  its `CLATCH_AGENT_ID` to the app (`Request.agent`), and `AppState` records the caller
   as `lastAgent`, so a fork can target the agent who invoked it. Documented in
   ARCHITECTURE § Targeting; the clock example uses it to wake exactly the agent who
   set each alarm.

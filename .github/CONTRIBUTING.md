@@ -1,46 +1,54 @@
-# Contributing to clapp-template
+# Contributing to chess-clapp
 
-This is a **template** — a starting point people fork into their own Clatch apps.
-So the bar is: keep it minimal, keep it correct, keep it easy to fork. Small is a
-feature.
+**chess** is a Clatch app (a "clapp"): one binary with two roles — a desktop **GUI** for
+the human and a **CLI** for the agent — over one shared game state. It is Rust + Tauri v2
+on the shared [`clappkit`](../../clappkit) crate, with a React/TypeScript webview.
 
 ## Ground rules
 
-- **KISS.** This repo should stay a clean foundation, not grow into a framework.
-  If a change makes forking harder, it probably doesn't belong here.
-- **The contract is the Clatch spec.** The normative truth lives in the
-  [Clatch repo](https://github.com/arfium/clatch)'s `reference/`
-  (`app-developer.md`, `protocol.md`, `launch.md`, `signals.md`,
-  `data-structures.md`). On conflict, the spec wins.
-- **The three must agree.** `clatch.json`, `AppInfo.swift`, and the code must share
-  the same app **id**, CLI **name**, and **signal** vocabulary. `clatch validate`
-  checks the manifest; nothing checks that the Swift matches it — keep them in
-  lockstep (see [`docs/TEMPLATE.md`](../docs/TEMPLATE.md)).
-- **It must build and validate.** `swift build -c release --package-path native`
-  is green, and `clatch validate dist` passes (CI runs the build).
+- **KISS.** The plumbing lives in clappkit; this repo should stay *chess*. If you find
+  yourself writing something that is not about chess, it probably belongs in clappkit —
+  and a change there is a change to all five clapps, so make it there deliberately.
+- **The contract is the Clapp Protocol.** The normative truth is
+  [`docs/protocol.md`](../docs/protocol.md) (manifest + control pipe); Clatch's own
+  [`reference/`](https://github.com/arfium/clatch) specs cover launcher internals. On
+  conflict, the protocol wins.
+- **The things that must agree.** `clatch.json`, the Rust, and `chess --help` share the
+  same app **id**, CLI **name**, **verbs** and **signal** vocabulary. `clatch validate`
+  checks the manifest against the files; `node scripts/check-manifest.mjs` checks it
+  against the code. Run both.
+- **It must build and validate.** `npm run verify` is green: build → package → `clatch
+  validate pkg` → a real socket round-trip between the CLI and the running window.
+  Build with `npm run build`, never a bare `cargo build --release` (see AGENTS.md).
+- **The Swift original is the spec, not the build.** `native/` is the SwiftUI app this was
+  ported from. Behaviour changes are checked against it — see the parity tests in
+  `src-tauri/src/game.rs`. Visual parity has been audited: don't restyle the board.
 - **No silent failures.** Every dropped signal, denied command, or fallback is
   visible in an error or the timeline. Fail-safe beats fail-open.
 - **Small, coherent PRs.** One concern per PR.
 
-## Branches (KISS variant of Clatch's model)
+## Branches
 
 `main` holds release code. Do daily work on short branches (`feat/…`, `fix/…`,
-`chore/…`) and open a PR into `main`; CI (a macOS `swift build`) is the gate.
-Releases are `v*` tags. (Clatch itself uses a `dev → stage → main` split; a small
-template doesn't need the extra rings.)
+`chore/…`) and open a PR; CI checks that the manifest and the code still agree (it cannot
+compile the Rust until clappkit is published — see `.github/workflows/ci.yml`), so
+`npm run verify` on your own machine is the real gate. Releases are `v*` tags.
 
 ## Getting started
 
 ```sh
-git clone https://github.com/arfium/clapp-template && cd clapp-template
-swift build -c release --package-path native
-CLATCH_STANDALONE=1 bin/clapp app &   # the GUI, without a launcher (dev hatch)
-bin/clapp state                        # drive it like the agent would
-npm run package                        # → dist/, ready for `clatch install`
+git clone https://github.com/arfium/chess-clapp && cd chess-clapp
+npm ci
+npm run build                          # the shippable binary, frontend embedded
+CLATCH_STANDALONE=1 bin/chess app &    # the GUI, without a launcher (dev hatch)
+bin/chess board                        # drive it like the agent would
+npm run package                        # → pkg/, ready for `clatch install`
 ```
 
-Prerequisites: macOS 14+ and a Swift 5.9+ toolchain (Xcode or the Command Line
-Tools). `clatch validate dist` needs the `clatch` binary from the Clatch repo.
+Prerequisites: Node 20+, a Rust toolchain, and Tauri v2's platform prerequisites
+(macOS: Xcode Command Line Tools). The sibling `clappkit/` and `clatch/` checkouts must
+sit beside this repo — `src-tauri/Cargo.toml` path-depends on them. `clatch validate`
+needs the `clatch` binary (on PATH, or `CLATCH_BIN=…`).
 
 Commit messages: imperative subject, body explains *why*.
 

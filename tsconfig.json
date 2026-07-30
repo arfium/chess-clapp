@@ -5,7 +5,16 @@
     "skipLibCheck": true, "moduleResolution": "bundler",
     "allowImportingTsExtensions": true, "resolveJsonModule": true,
     "isolatedModules": true, "noEmit": true, "jsx": "react-jsx",
-    "strict": true, "noUnusedLocals": false
+    "strict": true, "noUnusedLocals": false,
+    // Mirrors the Vite aliases, so the editor and `tsc --noEmit` resolve exactly what
+    // the bundler does. `react` / `@tauri-apps/api` are listed because clappkit/web sits
+    // outside this project and cannot find them by walking up from its own directory.
+    "baseUrl": ".",
+    "paths": {
+      "@clappkit": ["../clappkit/web/index.ts"],
+      "react": ["./node_modules/@types/react"],
+      "@tauri-apps/api/*": ["./node_modules/@tauri-apps/api/*"]
+    }
   },
   "include": ["src"]
 }

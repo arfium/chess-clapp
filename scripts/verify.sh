@@ -1,53 +1,69 @@
 #!/usr/bin/env sh
-# Does this chess actually work? Build → package → validate → prove the GUI process
-# and the CLI round-trip over the socket. One command, one clear PASS/FAIL. Run it
-# before you commit. (The socket smoke test needs a macOS GUI session — it's a local
-# dev check, not a CI step; CI just builds + packages.)
+# Does this clapp actually work? build → package → `clatch validate` → prove the GUI
+# process and the agent CLI round-trip over the app's private socket. One command, one
+# PASS/FAIL. Run it before every commit.
+#
+# The round-trip runs THE BINARY FROM THE DEPOT, not the one in target/release, so
+# what is tested is exactly what ships — including, for a clapp that vendors a runtime,
+# that the vendored runtime is found where the app looks for it.
+#
+# It needs a desktop session (a GUI window has to come up), so it is a local dev gate,
+# not a CI step. CI builds, packages and validates; a headless box stops at the socket.
 set -eu
+. "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)/lib.sh"
 
-ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-cd "$ROOT"
-CLI="$(sed -n 's/.*static let cli = "\([a-z0-9]*\)".*/\1/p' $(find native/Sources -name AppInfo.swift | head -1) | head -1)"
-[ -n "$CLI" ] || { echo "could not read cli from AppInfo.swift" >&2; exit 1; }
+# ── this clapp ──────────────────────────────────────────────────────────────────
+PROBE=board            # a DECLARED, read-only verb — the round-trip probe
+QUIT=close             # the DECLARED verb that ends the app
+app_checks() { :; }
 
-step() { printf '\n▸ %s\n' "$1"; }
-fail() { printf '\n✗ FAIL — %s\n' "$1" >&2; exit 1; }
+# ── everything below this line is byte-identical in every clapp ──────────────────
 
-step "build (release)"
-swift build -c release --package-path native >/dev/null 2>&1 || fail "swift build failed (run it directly to see why)"
-printf '  ok\n'
+CLI="$(manifest connector.cli)" || fail "clatch.json: connector.cli is missing"
+EXE="$(exe_suffix)"
 
-step "package → dist/"
-scripts/package.sh >/dev/null 2>&1 || fail "scripts/package.sh failed"
-printf '  ok\n'
+# 1. build + assemble. package.sh prints the depot path on stdout and narrates on
+#    stderr, so this both runs the build and tells us where the artefact landed.
+DIST="$("$ROOT/scripts/package.sh")"
+BIN="$DIST/bin/$CLI$EXE"
 
+app_checks
+
+# 2. the conformance oracle: does the depot satisfy the Clapp Protocol?
 step "clatch validate"
-if command -v clatch >/dev/null 2>&1; then
-  clatch validate dist || fail "clatch validate rejected the package"
+if CLATCH="$(find_clatch)"; then
+  "$CLATCH" validate "$DIST" >&2 || fail "clatch validate rejected the depot"
+  ok
 else
-  printf '  (clatch not on PATH — skipped; install it to run the conformance oracle)\n'
+  note "clatch not found — skipped. Put it on PATH or set CLATCH_BIN to run the oracle"
 fi
 
-step "socket round-trip (GUI process ⇄ CLI)"
-BIN="native/.build/release/$CLI"
-SOCK="$HOME/.$CLI/$CLI.sock"
-rm -f "$SOCK"
-CLATCH_STANDALONE=1 "$BIN" app >"/tmp/$CLI-verify.log" 2>&1 &
+# 3. the two surfaces must actually talk. Nothing else in the toolchain checks this:
+#    clatch validate reads the manifest, the compiler reads the code, and neither can
+#    tell you that `<cli> <verb>` reaches the running window.
+step "socket round-trip — agent CLI ⇄ GUI, through the packaged binary"
+LOG="${TMPDIR:-/tmp}/$CLI-verify.log"
+CLATCH_STANDALONE=1 "$BIN" app >"$LOG" 2>&1 &
 PID=$!
-i=0; while [ ! -S "$SOCK" ] && [ "$i" -lt 60 ]; do sleep 0.1; i=$((i + 1)); done
-if [ ! -S "$SOCK" ]; then
+OUT=""
+i=0
+while [ "$i" -lt 100 ]; do
+  if OUT="$("$BIN" "$PROBE" 2>&1)"; then break; fi
+  OUT=""
+  sleep 0.2
+  i=$((i + 1))
+done
+if [ -z "$OUT" ]; then
   kill "$PID" 2>/dev/null || true
-  fail "the app never bound its socket (see /tmp/$CLI-verify.log — a headless box has no GUI session)"
+  fail "\`$CLI $PROBE\` never reached the app (20s). Tail of $LOG:
+$(tail -n 20 "$LOG" 2>/dev/null | sed 's/^/      /')"
 fi
-if OUT="$("$BIN" state 2>&1)"; then
-  printf '  ok — CLI reached the running app:\n'
-  printf '%s\n' "$OUT" | sed 's/^/      /'
-else
-  "$BIN" close >/dev/null 2>&1 || true; kill "$PID" 2>/dev/null || true
-  fail "CLI could not reach the app: $OUT"
-fi
-"$BIN" close >/dev/null 2>&1 || true
-sleep 0.3; kill "$PID" 2>/dev/null || true
+printf '%s\n' "$OUT" | sed 's/^/      /' >&2
+ok "\`$CLI $PROBE\` answered"
 
-printf '\n✓ PASS — %s builds, packages, %s, and its two surfaces talk.\n' \
-  "$CLI" "$(command -v clatch >/dev/null 2>&1 && printf validates || printf 'validate skipped')"
+"$BIN" "$QUIT" >/dev/null 2>&1 || true
+sleep 0.5
+kill "$PID" 2>/dev/null || true
+
+printf '\n✓ PASS — %s builds, packages%s, and its two surfaces talk.\n' \
+  "$CLI" "$(find_clatch >/dev/null 2>&1 && printf ', validates' || printf ' (validate skipped)')" >&2
