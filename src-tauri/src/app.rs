@@ -24,7 +24,7 @@ fn apply_icon(app: &AppHandle) {
     clappkit::set_dock_icon(ICON_PNG);
     #[cfg(not(target_os = "macos"))]
     if let Some(w) = app.get_webview_window("main") {
-        if let Ok(img) = tauri::image::Image::from_bytes(ICON_PNG) {
+        if let Ok(img) = tauri::image::Image::from_bytes(&clappkit::dock_icon(ICON_PNG)) {
             let _ = w.set_icon(img);
         }
     }

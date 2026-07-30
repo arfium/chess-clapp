@@ -437,6 +437,7 @@ dependencies = [
  "clatch-pipe",
  "clatch-registry",
  "cocoa",
+ "image",
  "objc",
  "serde",
  "serde_json",
@@ -445,7 +446,7 @@ dependencies = [
 
 [[package]]
 name = "clatch-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -458,7 +459,7 @@ dependencies = [
 
 [[package]]
 name = "clatch-ipc"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "clatch-core",
  "serde",
@@ -468,7 +469,7 @@ dependencies = [
 
 [[package]]
 name = "clatch-pipe"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "clatch-core",
  "clatch-ipc",
@@ -480,7 +481,7 @@ dependencies = [
 
 [[package]]
 name = "clatch-registry"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "clatch-core",
