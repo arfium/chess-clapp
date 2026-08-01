@@ -21,11 +21,11 @@ export default defineConfig({
   clearScreen: false,
   resolve: {
     alias: {
-      "@clappkit": path.resolve(__dirname, "../clappkit/web"),
+      "@clappkit": path.resolve(__dirname, "clappkit/web"),
       react: path.resolve(__dirname, "node_modules/react"),
       "@tauri-apps/api": path.resolve(__dirname, "node_modules/@tauri-apps/api"),
     },
   },
-  server: { port: 1421, strictPort: true, fs: { allow: [".", "../clappkit"] } },
+  server: { port: 1421, strictPort: true, fs: { allow: ["."] } },
   build: { target: "safari15" },
 });

@@ -11,7 +11,7 @@
     // outside this project and cannot find them by walking up from its own directory.
     "baseUrl": ".",
     "paths": {
-      "@clappkit": ["../clappkit/web/index.ts"],
+      "@clappkit": ["./clappkit/web/index.ts"],
       "react": ["./node_modules/@types/react"],
       "@tauri-apps/api/*": ["./node_modules/@tauri-apps/api/*"]
     }
