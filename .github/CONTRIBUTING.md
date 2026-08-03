@@ -10,7 +10,7 @@ on the shared [`clappkit`](../../clappkit) crate, with a React/TypeScript webvie
   yourself writing something that is not about chess, it probably belongs in clappkit —
   and a change there is a change to all five clapps, so make it there deliberately.
 - **The contract is the Clapp Protocol.** The normative truth is
-  [`docs/protocol.md`](../docs/protocol.md) (manifest + control pipe); Clatch's own
+  [`clappkit/docs/protocol.md`](../clappkit/docs/protocol.md) (manifest + control pipe); Clatch's own
   [`reference/`](https://github.com/arfium/clatch) specs cover launcher internals. On
   conflict, the protocol wins.
 - **The things that must agree.** `clatch.json`, the Rust, and `chess --help` share the

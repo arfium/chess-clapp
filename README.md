@@ -176,6 +176,6 @@ verb `cli.rs` answers, documents each one in `--help`, declares every signal `ga
 emits, and that the version is the same string in all four places it is written.
 
 > The frozen contract between Clatch and this clapp — the manifest and the control
-> pipe — is **[docs/protocol.md](docs/protocol.md)** (The Clapp Protocol). It is the
+> pipe — is **[clappkit/docs/protocol.md](clappkit/docs/protocol.md)** (The Clapp Protocol). It is the
 > single normative source; Clatch implements it. Clatch's own
 > [`reference/`](https://github.com/arfium/clatch) specs cover the launcher internals.

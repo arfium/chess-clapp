@@ -111,11 +111,11 @@ so a change there is a change to all of them.
   native control bar — a 1:1 port of `BoardView.swift`. Visual parity with the Swift
   original has been audited and signed off: don't restyle it.
 - The **frozen, normative** contract (manifest + control pipe) is
-  [docs/protocol.md](docs/protocol.md) — The Clapp Protocol. Protocol wins. (Clatch's
+  [clappkit/docs/protocol.md](clappkit/docs/protocol.md) — The Clapp Protocol. Protocol wins. (Clatch's
   own [`reference/`](https://github.com/arfium/clatch) specs cover launcher internals.)
   The house standards for the icon and the release drill live once, in the template
-  repo beside this one: `../template-clapp/docs/ICONS.md` and
-  `../template-clapp/docs/PLAYBOOK.md`. They are deliberately not copied here — one
+  repo beside this one: `clappkit/docs/ICONS.md` and
+  `clappkit/docs/PLAYBOOK.md`. They are deliberately not copied here — one
   standard, one file. `scripts/render-icon.sh` implements the icon rule for this app.
 
 ## Operating the running app (the end-user's agent)

@@ -76,7 +76,7 @@ bumps may break (SemVer 0.x rules).
     `Picker(.segmented)` for board perspective (View: White / Black).
 
 ### Changed
-- **Adopt the frozen Clapp Protocol** ([docs/protocol.md](docs/protocol.md)). The
+- **Adopt the frozen Clapp Protocol** ([clappkit/docs/protocol.md](clappkit/docs/protocol.md)). The
   control pipe is now `app.toAgent {id, type, target, payload}` (the type is stamped
   from the declaration and re-validated by Clatch), `app.register {instanceToken}`,
   and `app.toAgentRefused {id, agent, reason}`; framing is fail-fast; a wired app
