@@ -11,7 +11,7 @@
 # PNG — so chess read visibly undersized next to its neighbours on the Clatch shelf, on
 # every platform. One command, one source, no drift. Run it whenever icon.svg changes,
 # then `npm run package` so the depot copy in pkg/ follows (the icon standard is
-# ../template-clapp/docs/ICONS.md; a stale depot is the usual cause of an old shelf icon).
+# ../template-clapp/docs/icons.md; a stale depot is the usual cause of an old shelf icon).
 #
 # Needs librsvg (`brew install librsvg`) and Pillow (`pip3 install pillow`) — dev-box
 # tools, not build dependencies: the rendered PNG and .ico are committed.

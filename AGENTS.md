@@ -114,8 +114,8 @@ so a change there is a change to all of them.
   [clappkit/docs/protocol.md](clappkit/docs/protocol.md) — The Clapp Protocol. Protocol wins. (Clatch's
   own [`reference/`](https://github.com/arfium/clatch) specs cover launcher internals.)
   The house standards for the icon and the release drill live once, in the template
-  repo beside this one: `clappkit/docs/ICONS.md` and
-  `clappkit/docs/PLAYBOOK.md`. They are deliberately not copied here — one
+  repo beside this one: `clappkit/docs/icons.md` and
+  `clappkit/docs/playbook.md`. They are deliberately not copied here — one
   standard, one file. `scripts/render-icon.sh` implements the icon rule for this app.
 
 ## Operating the running app (the end-user's agent)
