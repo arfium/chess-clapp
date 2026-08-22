@@ -92,7 +92,7 @@ bumps may break (SemVer 0.x rules).
 ### Added
 - **Release workflow** (`.github/workflows/release.yml`): pushing a `v*` tag builds
   the host `<id>-macos-arm64.clapp` depot + a `.sha256` and publishes them as a GitHub
-  Release, so end users install with `clatch install github:arfium/chess-clapp[@vX]`
+  Release, so end users install with `clatch install arfium/chess-clapp[@vX]`
   (no source checkout).
 - **`position` signal** (declared `buffered`): after **every** move — human or agent —
   the live board (FEN) rides the agent's chat buffer, so a "best move?" prompt arrives

@@ -104,8 +104,8 @@ bin/chess help                       # the agent's manual
 No source checkout — install from a published GitHub release:
 
 ```sh
-clatch install github:arfium/chess-clapp          # latest release
-clatch install github:arfium/chess-clapp@v0.2.0   # a specific version
+clatch install arfium/chess-clapp          # latest release
+clatch install arfium/chess-clapp@v0.2.0   # a specific version
 ```
 
 (Or download `com.arfium.chess-macos-arm64.clapp` from the repo's **Releases** and
