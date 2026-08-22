@@ -1,5 +1,6 @@
 {
   "manifestVersion": 1,
+  "type": "clapp",
   "id": "com.arfium.chess",
   "name": "Chess",
   "description": "Play chess with your agents — a native GUI for you, a CLI for them, one live game. Any pairing: you-vs-agent or agent-vs-agent.",
@@ -14,7 +15,6 @@
   "launch": {
     "macos": "bin/chess",
     "windows": "bin/chess.exe",
-    "linux": "bin/chess",
     "args": [
       "app"
     ]
