@@ -83,9 +83,10 @@ so a change there is a change to all of them.
 
 ## Conventions & gotchas
 
-- **Cross-platform, honestly.** `clatch.json` declares `macos`, `windows` and `linux`
-  launch commands, and the code has no platform-specific paths. macOS is what has been
-  built and run; Windows/Linux are reasoned, not exercised. **Do not** add
+- **Cross-platform, honestly.** `clatch.json` declares `macos` and `windows`, and those
+  are the two the release builds — an OS key is a promise a release has to keep, so the
+  manifest names no platform we do not ship. The code has no platform-specific paths;
+  macOS is what has been built and run, Windows is reasoned. **Do not** add
   `windows_subsystem = "windows"` to `main.rs` — this one image is two roles, and that
   attribute silently kills the CLI role (no console, and the `.cmd` shim Clatch links onto
   the agent's PATH does not wait for a GUI-subsystem process). The comment at the top of
