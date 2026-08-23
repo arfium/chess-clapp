@@ -65,6 +65,11 @@ impl PosState {
         // Everything shakmaty lets us wave through, we wave through — the stricter kinds
         // (missing king, opposite check, pawns on the back rank) simply mean "no rules
         // engine for this position", which is exactly what chaos mode promises.
+        // `result_large_err`: the Err is shakmaty's own `PositionError<Chess>` (144 bytes),
+        // carried by shakmaty's own builder chain — boxing it would mean unwrapping and
+        // rewrapping between every `ignore_*`, and nothing here propagates anyway: the
+        // chain ends in `.ok()`.
+        #[allow(clippy::result_large_err)]
         let chess = Chess::from_setup(setup.clone(), CastlingMode::Standard)
             .or_else(|e| e.ignore_invalid_castling_rights())
             .or_else(|e| e.ignore_invalid_ep_square())
@@ -656,7 +661,11 @@ fn parse_color(s: &str) -> Color {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.subsec_nanos())
                 .unwrap_or(0);
-            if n % 2 == 0 { Color::White } else { Color::Black }
+            // `is_multiple_of` landed in Rust 1.87. Taking the suggestion would raise
+            // the compiler this app needs, to say the same thing about parity.
+            #[allow(clippy::manual_is_multiple_of)]
+            let white = n % 2 == 0;
+            if white { Color::White } else { Color::Black }
         }
         _ => Color::White,
     }
