@@ -29,12 +29,16 @@ command -v rsvg-convert >/dev/null 2>&1 || { echo "render-icon: rsvg-convert not
 rsvg-convert -w 1024 -h 1024 "$SVG" -o "$PNG"
 
 # The .ico carries the layers Windows picks between (Explorer, the taskbar, Alt-Tab).
+# The PNG is re-saved as RGBA in the same pass: rsvg-convert drops the alpha channel when
+# the artwork covers the whole canvas, and `tauri build` then fails from inside a proc
+# macro with "icon … is not RGBA" — a message naming neither the file nor the fix.
 python3 - "$PNG" "$ICO" <<'PY'
 import sys
 from PIL import Image
 
 png, ico = sys.argv[1], sys.argv[2]
 im = Image.open(png).convert("RGBA")
+im.save(png)
 im.save(ico, sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 
 # The icon standard, rule 3: a transparent mark fills ~95–98% of the canvas HEIGHT. Print it
