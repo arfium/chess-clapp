@@ -12,6 +12,7 @@
   "version": "0.3.0",
   "protocol": 2,
   "icon": "assets/icon.png",
+  "banner": "assets/banner.png",
   "launch": {
     "macos": "bin/chess",
     "windows": "bin/chess.exe",
