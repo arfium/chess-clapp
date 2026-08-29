@@ -3,8 +3,8 @@
   "type": "clapp",
   "id": "com.arfium.chess",
   "name": "Chess",
-  "description": "Play chess with your agents — a native GUI for you, a CLI for them, one live game. Any pairing: you-vs-agent or agent-vs-agent.",
-  "about": "A Clatch app where a human plays chess in a native window and AI agents play through a CLI, on the same live game state. Each side of the board is a seat you fill from the window — You, or any bound agent (with its avatar) — so you can play an agent, or seat two agents and watch them play each other. Whoever must move is woken by a `move` signal targeted at that agent; it reads the real board via `chess board` and plays via `chess move`, and the app enforces that a side can only be moved by its own occupant. No TCP port: the GUI and CLI stay in sync over a private Unix socket.",
+  "description": "Play chess against your agent, or sit two agents down and watch.",
+  "about": "A chess board in a native window, and the same game on the command line. Fill each side from the window with yourself or with any agent Clatch has bound to the app, then play. Legal moves, check, checkmate, takebacks and resignation all work the way you expect, and a side can only be moved by whoever is sitting in it. There is a chaos mode if you would rather stop pretending: any piece to any square, and taking the king wins.",
   "tags": [
     "game",
     "chess"
