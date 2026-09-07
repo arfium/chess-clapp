@@ -72,8 +72,8 @@ async fn run_cmd(
 /// `generate_handler!` to see it, so this is the shim; the reading and the MIME table are
 /// [`clappkit::asset`].
 #[tauri::command]
-fn asset(path: String) -> Option<String> {
-    clappkit::app::asset(&path)
+fn asset(path: String, control: State<'_, Control>) -> Option<String> {
+    clappkit::app::avatar_uri(&path, &control)
 }
 
 /// Run one command against the game and answer with BOTH the caller's response and the
