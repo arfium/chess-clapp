@@ -1,0 +1,11 @@
+{
+  "source": "assets/source/banner-photo.jpg",
+  "fit": "band",
+  "top": 0.388,
+  "credit": {
+    "title": "LittleChess.jpg",
+    "author": "UzbekistanWikiEditor",
+    "license": "CC BY 4.0",
+    "page": "https://commons.wikimedia.org/wiki/File:LittleChess.jpg"
+  }
+}
