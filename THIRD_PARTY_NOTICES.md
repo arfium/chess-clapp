@@ -95,3 +95,9 @@ LLC, Apache License 2.0, unmodified. `bullet.svg` was drawn for this app in the 
 React (MIT), Tauri (MIT/Apache-2.0) and the rest of the dependency tree are under
 their own permissive licences, as recorded in `package-lock.json` and
 `src-tauri/Cargo.lock`.
+
+## The banner
+
+`assets/banner.jpg` is cut from "LittleChess.jpg" by UzbekistanWikiEditor,
+<https://commons.wikimedia.org/wiki/File:LittleChess.jpg>, under
+CC BY 4.0 (<https://creativecommons.org/licenses/by/4.0/>): cropped to a band and resized.

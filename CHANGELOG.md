@@ -4,6 +4,13 @@ All notable changes to chess. Format:
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: pre-1.0, minor
 bumps may break (SemVer 0.x rules).
 
+## [0.4.1] - 2026-11-02
+
+### Fixed
+- **The banner's credit ships with the app.** The photo is CC BY 4.0, and its credit
+  sat only in `assets/source/banner.json`, which no package carries.
+  `THIRD_PARTY_NOTICES.md` now names the photo, its author, the licence and the crop.
+
 ## [0.4.0] - 2026-11-02
 
 ### Added
