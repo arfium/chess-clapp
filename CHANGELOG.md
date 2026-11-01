@@ -4,7 +4,7 @@ All notable changes to chess. Format:
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: pre-1.0, minor
 bumps may break (SemVer 0.x rules).
 
-## [Unreleased]
+## [0.4.0] - 2026-11-02
 
 ### Added
 - **Modes:** a rail with Play, Analysis, Board Editor and Game Review.
@@ -80,6 +80,25 @@ bumps may break (SemVer 0.x rules).
   carry a one-pixel light outline, so they read against the desk.
 - **A PGN without player tags showed "?" for both names** — chess.js's placeholder tags
   are now dropped on import, so the plates read White and Black.
+
+## [0.3.1] - 2026-09-08
+
+### Changed
+- A banner and a store listing written the way its publisher would write it, with
+  `check-manifest` measuring the pictures rather than taking them on trust.
+- A depot names one platform: packaging strips `launch` to the host's own OS key, which
+  is what `clatch validate` now requires of a `.clapp`.
+- clappkit through the K1-K5 series — local-file safety across store, paths and the
+  avatar bridge, framing that trusts neither a length prefix nor a squatted name,
+  env-driven execution and the one-time token no longer leaking, and `install_root`'s
+  ascent bounded so a distant `clatch.json` cannot pass for the root.
+
+### Fixed
+- The `unused_mut` warning every Windows build printed, from clappkit's
+  `private_fallback_dir`.
+- clappkit's two binding tests spelled a unix socket path on Windows, where the transport
+  is a named pipe. Its `cargo test --workspace` there was 70 passed / 2 failed; it is
+  82 / 0 now.
 
 ## [0.3.0] - 2026-08-23
 
