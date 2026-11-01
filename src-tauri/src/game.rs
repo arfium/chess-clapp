@@ -10,7 +10,7 @@
 
 use serde_json::{json, Value};
 use shakmaty::fen::Fen;
-use shakmaty::san::San;
+use shakmaty::san::SanPlus;
 use shakmaty::uci::UciMove;
 use shakmaty::{
     CastlingMode, Chess, Color, EnPassantMode, File, FromSetup, Move, Piece, Position, Role, Setup,
@@ -20,29 +20,40 @@ use shakmaty::{
 /// the seats are drawn from both live in clappkit: four clapps had declared the same two
 /// structs, field for field, and the projections had already drifted apart.
 pub use clappkit::{AgentRow, Emit};
+use std::time::{Duration, Instant};
 
 #[derive(Clone, PartialEq)]
 pub enum Seat {
     Empty,
     Human,
     Agent(String), // agent id
+    /// Stockfish at a strength level (1–8). The engine runs in the window, which plays
+    /// its moves back through `move` with `engine: true` — the core only keeps the seat.
+    Engine(u8),
 }
 
 #[derive(Clone, Copy)]
 pub enum Actor {
     User,
     Agent,
+    /// The window, moving on behalf of a `Seat::Engine`.
+    Engine,
 }
 
+pub const ENGINE_LEVELS: u8 = 8;
+
 /// One played half-move. `moves` in the snapshot projects `san` + `color` (the move rail
-/// pairs by COLOUR, exactly like Swift); the rest is what lets `takeback` restore the
-/// previous last-move highlight.
+/// pairs by COLOUR, exactly like Swift); `plies` projects `uci` + `fen` (the position
+/// AFTER the move), which is what lets the window step back through the game and hand
+/// every position to the engine. `from`/`to` let `takeback` restore the highlight.
 #[derive(Clone)]
 struct MoveRow {
     san: String,
     color: Color,
     from: u32,
     to: u32,
+    uci: String,
+    fen: String,
 }
 
 /// The position: the canonical (possibly illegal) `Setup` plus the validated `Chess` when
@@ -99,11 +110,76 @@ impl PosState {
     }
 }
 
+/// A chess clock: each side's time left, the increment added after every move, and whose
+/// clock is running since when. It starts with White's first move — Black's clock is the
+/// first to run — the way lichess does, so nobody loses time before the game has begun.
+#[derive(Clone)]
+struct Clock {
+    initial: Duration,
+    increment: Duration,
+    left: [Duration; 2], // [white, black]
+    running: Option<(Color, Instant)>,
+    /// Set by the first move; until then nobody's time runs.
+    started: bool,
+}
+
+impl Clock {
+    fn new(initial: Duration, increment: Duration) -> Clock {
+        Clock { initial, increment, left: [initial, initial], running: None, started: false }
+    }
+
+    fn idx(c: Color) -> usize {
+        if c == Color::White { 0 } else { 1 }
+    }
+
+    /// Time left for `c` at `now` (the running side's clock keeps going down).
+    fn left_at(&self, c: Color, now: Instant) -> Duration {
+        let base = self.left[Clock::idx(c)];
+        match self.running {
+            Some((r, since)) if r == c => base.saturating_sub(now.saturating_duration_since(since)),
+            _ => base,
+        }
+    }
+
+    /// Charge the running side for the time it used and stop the clock.
+    fn stop(&mut self, now: Instant) {
+        if let Some((r, _)) = self.running {
+            self.left[Clock::idx(r)] = self.left_at(r, now);
+        }
+        self.running = None;
+    }
+
+    /// `mover` just moved: charge it, add the increment, start the other side. The first
+    /// move of the game starts the clock (so the opponent's is the first to run).
+    fn pressed(&mut self, mover: Color, now: Instant, game_on: bool) {
+        self.stop(now);
+        if self.started {
+            self.left[Clock::idx(mover)] += self.increment;
+        }
+        self.started = true;
+        if game_on {
+            self.running = Some((mover.other(), now));
+        }
+    }
+
+    fn json(&self, now: Instant) -> Value {
+        json!({
+            "initial": self.initial.as_millis() as u64,
+            "increment": self.increment.as_millis() as u64,
+            "white": self.left_at(Color::White, now).as_millis() as u64,
+            "black": self.left_at(Color::Black, now).as_millis() as u64,
+            "running": self.running.map(|(c, _)| color_str(c)),
+        })
+    }
+}
+
 pub struct Game {
     pos: PosState,
     stack: Vec<PosState>,
     history: Vec<MoveRow>,
     status: String, // idle | playing | checkmate | stalemate | draw | resigned | ended
+    /// Why a `draw` is a draw: `repetition` | `fifty` | `insufficient`.
+    draw_reason: Option<&'static str>,
     result: Option<String>,
     winner: Option<Color>,
     last: Option<(u32, u32)>,
@@ -114,9 +190,13 @@ pub struct Game {
     /// Chaos toggle (default OFF): when on, the side to move may move any of its own
     /// pieces to any square — legality and check are not enforced.
     chaos: bool,
+    /// The chess clock, when the game has a time control.
+    clock: Option<Clock>,
     /// A short note an agent left for the human (`chess say "…"`). Cleared by `new` and by
     /// every move, exactly like Swift's `Game.coach`.
     coach: Option<String>,
+    /// Who left `coach` (an agent id), so the window can pin the note to their strip.
+    coach_from: Option<String>,
 }
 
 impl Default for Game {
@@ -126,6 +206,7 @@ impl Default for Game {
             stack: Vec::new(),
             history: Vec::new(),
             status: "idle".into(),
+            draw_reason: None,
             result: None,
             winner: None,
             last: None,
@@ -134,7 +215,9 @@ impl Default for Game {
             black: Seat::Empty,
             agents: Vec::new(),
             chaos: false,
+            clock: None,
             coach: None,
+            coach_from: None,
         }
     }
 }
@@ -176,6 +259,7 @@ impl Game {
                 // A short note for the human, shown next to the board. Set verbatim (an
                 // empty string clears it for every reader, as in Swift).
                 self.coach = Some(req.get("text").and_then(Value::as_str).unwrap_or("").to_string());
+                self.coach_from = caller.clone();
                 self.snapshot(caller.as_deref())
             }
             "chaos" => {
@@ -190,6 +274,10 @@ impl Game {
                 let seat = match req.get("who").and_then(Value::as_str).unwrap_or("empty") {
                     "human" => Seat::Human,
                     "empty" => Seat::Empty,
+                    who if who == "engine" || who.starts_with("engine:") => {
+                        let level = who.strip_prefix("engine:").and_then(|n| n.parse::<u8>().ok()).unwrap_or(4);
+                        Seat::Engine(level.clamp(1, ENGINE_LEVELS))
+                    }
                     id => Seat::Agent(id.to_string()),
                 };
                 if color == Color::White { self.white = seat } else { self.black = seat }
@@ -218,21 +306,47 @@ impl Game {
                 if !self.seats_ready() {
                     return (err("both seats must be filled first"), emits);
                 }
-                self.pos = PosState::start();
+                // `fen` (the window's "Play from here"): start from a set-up position. It
+                // must be legal chess with moves left to play — chaos mode included, since
+                // the game has to begin somewhere the rules engine understands.
+                let start = match req.get("fen").and_then(Value::as_str) {
+                    None => PosState::start(),
+                    Some(text) => match start_position(text) {
+                        Ok(p) => p,
+                        Err(e) => return (err(&e), emits),
+                    },
+                };
+                // `clock: {initial, increment}` in seconds: a timed game. Without it, no clock.
+                self.clock = req.get("clock").and_then(|c| {
+                    let initial = c.get("initial").and_then(Value::as_f64)?;
+                    let increment = c.get("increment").and_then(Value::as_f64).unwrap_or(0.0);
+                    (initial > 0.0).then(|| Clock::new(Duration::from_secs_f64(initial), Duration::from_secs_f64(increment.max(0.0))))
+                });
+                self.pos = start;
                 self.stack.clear();
                 self.history.clear();
                 self.status = "playing".into();
+                self.draw_reason = None;
                 self.result = None;
                 self.winner = None;
                 self.last = None;
                 self.last_san.clear();
                 self.coach = None;
+                self.coach_from = None;
                 self.kick(&mut emits);
                 self.snapshot(caller.as_deref())
             }
             "move" => {
                 let uci = req.get("uci").and_then(Value::as_str).unwrap_or("");
-                let actor = if caller.is_some() { Actor::Agent } else { Actor::User };
+                // `engine: true` is the window playing for a Stockfish seat. An agent's
+                // request always carries its id, so it can never claim to be the engine.
+                let actor = if caller.is_some() {
+                    Actor::Agent
+                } else if req.get("engine").and_then(Value::as_bool) == Some(true) {
+                    Actor::Engine
+                } else {
+                    Actor::User
+                };
                 match self.play(uci, actor, caller.clone(), &mut emits) {
                     Ok(()) => self.snapshot(caller.as_deref()),
                     Err(e) => return (err(&e), emits),
@@ -245,6 +359,9 @@ impl Game {
             }
             "end" => {
                 if self.status == "playing" {
+                    if let Some(c) = self.clock.as_mut() {
+                        c.stop(Instant::now());
+                    }
                     self.status = "ended".into();
                     self.result = None;
                     self.winner = None;
@@ -277,8 +394,19 @@ impl Game {
             self.history.pop();
         }
         self.status = "playing".into();
+        self.draw_reason = None;
         self.result = None;
         self.winner = None;
+        // The clock follows the turn: whoever is to move now is the one whose time runs —
+        // once the game's clock has started at all.
+        if let Some(c) = self.clock.as_mut() {
+            let now = Instant::now();
+            c.stop(now);
+            c.started = !self.history.is_empty();
+            if c.started {
+                c.running = Some((self.pos.turn(), now));
+            }
+        }
         // Restore the highlight of whatever move is now last (none when history is empty).
         self.last = self.history.last().map(|m| (m.from, m.to));
     }
@@ -296,6 +424,9 @@ impl Game {
     fn resign(&mut self, color: Color, emits: &mut Vec<Emit>) {
         if self.status != "playing" {
             return;
+        }
+        if let Some(c) = self.clock.as_mut() {
+            c.stop(Instant::now());
         }
         self.status = "resigned".into();
         self.winner = Some(color.other());
@@ -321,6 +452,8 @@ impl Game {
         match (actor, self.seat(mover).clone()) {
             (Actor::User, Seat::Human) => {}
             (Actor::User, _) => return Err("not your turn".into()),
+            (Actor::Engine, Seat::Engine(_)) => {}
+            (Actor::Engine, _) => return Err("not your turn".into()),
             (Actor::Agent, Seat::Agent(id)) => {
                 if let Some(c) = &caller {
                     if c != &id {
@@ -335,6 +468,12 @@ impl Game {
             }
         }
 
+        // A move that arrives after the flag fell does not count: the game is already lost.
+        if self.clock.as_ref().is_some_and(|c| c.left_at(mover, Instant::now()).is_zero()) {
+            self.tick_at(Instant::now(), emits);
+            return Err("time is up".into());
+        }
+
         let uci_move = UciMove::from_ascii(uci.as_bytes()).map_err(|_| "bad move — use UCI like e2e4".to_string())?;
         let (from, to, promo) = match uci_move {
             UciMove::Normal { from, to, promotion } => (from, to, promotion),
@@ -343,7 +482,7 @@ impl Game {
 
         // Resolve the move. Strict mode (default) requires a legal move; chaos mode
         // accepts any of the mover's own pieces onto any other square.
-        let (next, san) = if self.chaos {
+        let (next, san, uci) = if self.chaos {
             let piece = self.pos.piece_at(from).ok_or_else(|| "illegal move".to_string())?;
             if piece.color != mover || from == to {
                 return Err("illegal move".into());
@@ -363,7 +502,8 @@ impl Game {
                 Some(mv) => self.apply_legal(&mv),
                 None => {
                     let san = raw_san(piece, from, to, promo);
-                    (PosState::from_setup(raw_apply(&self.pos.setup, from, to, promo)), san)
+                    let uci = UciMove::Normal { from, to, promotion: promo }.to_string();
+                    (PosState::from_setup(raw_apply(&self.pos.setup, from, to, promo)), san, uci)
                 }
             }
         } else {
@@ -392,11 +532,17 @@ impl Game {
             color: mover,
             from: u32::from(from),
             to: u32::from(to),
+            uci,
+            fen: self.pos.fen(),
         });
         self.last = Some((u32::from(from), u32::from(to)));
         self.last_san = san.clone();
         self.coach = None; // a played move retires the note (Swift: `coach = nil`)
         self.update_status(mover);
+        let game_on = self.status == "playing";
+        if let Some(c) = self.clock.as_mut() {
+            c.pressed(mover, Instant::now(), game_on);
+        }
 
         // `position` (buffered) rides after every move to everyone watching.
         emits.push(Emit { id: "position".into(), target: vec![], payload: json!({ "fen": self.pos.fen(), "last": san }) });
@@ -415,13 +561,63 @@ impl Game {
         Ok(())
     }
 
-    /// Play a validated shakmaty move, returning the next position and its real SAN.
-    fn apply_legal(&self, mv: &Move) -> (PosState, String) {
-        let chess = self.pos.chess.clone().expect("a legal move implies a legal position");
-        let san = San::from_move(&chess, mv).to_string();
-        let mut next = chess;
-        next.play_unchecked(mv);
-        (PosState::from_chess(next), san)
+    /// Play a validated shakmaty move, returning the next position, its real SAN and its
+    /// UCI (castling as the king's two-square move, e1g1 — what every engine speaks).
+    fn apply_legal(&self, mv: &Move) -> (PosState, String, String) {
+        let mut next = self.pos.chess.clone().expect("a legal move implies a legal position");
+        let uci = mv.to_uci(CastlingMode::Standard).to_string();
+        // SAN *with* its check / mate suffix (Qh4#), as every scoresheet writes it.
+        let san = SanPlus::from_move_and_play_unchecked(&mut next, mv).to_string();
+        (PosState::from_chess(next), san, uci)
+    }
+
+    /// How many times the current position has stood on the board — same pieces, same
+    /// side to move, same castling rights and en-passant square (FIDE 9.2).
+    fn repetitions(&self) -> usize {
+        let key = |p: &PosState| {
+            let fen = p.fen();
+            fen.split(' ').take(4).collect::<Vec<_>>().join(" ")
+        };
+        let now = key(&self.pos);
+        1 + self.stack.iter().filter(|p| key(p) == now).count()
+    }
+
+    /// The clock's own heartbeat (app.rs calls it ten times a second): when the side to
+    /// move has run out of time, the game ends — a loss on time, or a draw when the other
+    /// side has nothing left to mate with. Returns whether the game just ended.
+    pub fn tick(&mut self, emits: &mut Vec<Emit>) -> bool {
+        self.tick_at(Instant::now(), emits)
+    }
+
+    fn tick_at(&mut self, now: Instant, emits: &mut Vec<Emit>) -> bool {
+        if self.status != "playing" {
+            return false;
+        }
+        let Some(clock) = self.clock.as_mut() else { return false };
+        let Some((side, _)) = clock.running else { return false };
+        if !clock.left_at(side, now).is_zero() {
+            return false;
+        }
+        clock.stop(now);
+        let winner = side.other();
+        let can_mate = self.pos.setup.board.by_color(winner).count() > 1
+            && self.pos.chess.as_ref().is_none_or(|c| !c.has_insufficient_material(winner));
+        if can_mate {
+            self.status = "timeout".into();
+            self.winner = Some(winner);
+            self.result = Some(if winner == Color::White { "1-0".into() } else { "0-1".into() });
+        } else {
+            self.status = "draw".into();
+            self.draw_reason = Some("timeout");
+            self.winner = None;
+            self.result = Some("1/2-1/2".into());
+        }
+        let mut payload = json!({ "status": self.status, "result": self.result.clone().unwrap_or_default() });
+        if let Some(w) = self.winner {
+            payload["winner"] = json!(color_str(w));
+        }
+        emits.push(Emit { id: "game.over".into(), target: vec![], payload });
+        true
     }
 
     /// If a game is in progress and the side to move is an agent, wake exactly it.
@@ -463,7 +659,14 @@ impl Game {
             self.status = "stalemate".into();
             self.winner = None;
             self.result = Some("1/2-1/2".into());
-        } else if pos.halfmoves() >= 100 || pos.is_insufficient_material() {
+        } else if pos.is_insufficient_material() || pos.halfmoves() >= 100 || self.repetitions() >= 3 {
+            self.draw_reason = Some(if pos.is_insufficient_material() {
+                "insufficient"
+            } else if pos.halfmoves() >= 100 {
+                "fifty"
+            } else {
+                "repetition"
+            });
             self.status = "draw".into();
             self.winner = None;
             self.result = Some("1/2-1/2".into());
@@ -500,6 +703,7 @@ impl Game {
         match self.seat(c) {
             Seat::Empty => json!({ "kind": "empty" }),
             Seat::Human => json!({ "kind": "human", "name": "You" }),
+            Seat::Engine(level) => json!({ "kind": "engine", "name": "Stockfish", "level": level }),
             Seat::Agent(id) => {
                 // An id that has dropped out of the roster keeps its seat and renders as
                 // an offline agent: a name, no model/backend/avatar.
@@ -545,9 +749,11 @@ impl Game {
             "fen": self.pos.fen(),
             "turn": color_str(self.pos.turn()),
             "status": self.status,
+            "drawReason": self.draw_reason,
             "result": self.result,
             "winner": self.winner.map(color_str),
             "inCheck": in_check,
+            "clock": self.clock.as_ref().map(|c| c.json(Instant::now())),
             "chaos": self.chaos,
             "board": board,
             "white": self.player(Color::White),
@@ -562,7 +768,16 @@ impl Game {
                 .iter()
                 .map(|m| json!({ "san": m.san, "color": color_str(m.color) }))
                 .collect::<Vec<_>>(),
+            // The same half-moves as the engine and the history browser need them: UCI,
+            // and the FEN of the position the move produced. `startFen` is ply 0.
+            "plies": self
+                .history
+                .iter()
+                .map(|m| json!({ "uci": m.uci, "fen": m.fen, "from": m.from, "to": m.to }))
+                .collect::<Vec<_>>(),
+            "startFen": self.stack.first().unwrap_or(&self.pos).fen(),
             "coach": self.coach,
+            "coachFrom": self.coach_from,
             "seatsReady": self.seats_ready(),
             "hasHuman": self.has_human(),
             "agents": self
@@ -645,6 +860,21 @@ fn raw_san(piece: Piece, from: Square, to: Square, promo: Option<Role>) -> Strin
         s.push_str(&role_char(p).to_uppercase());
     }
     s
+}
+
+/// A position a game may start from: valid FEN, legal, and not already over.
+fn start_position(text: &str) -> Result<PosState, String> {
+    let fen: Fen = text.trim().parse().map_err(|_| "not a valid FEN".to_string())?;
+    #[allow(clippy::result_large_err)]
+    let chess: Chess = fen
+        .into_position(CastlingMode::Standard)
+        .or_else(|e| e.ignore_invalid_castling_rights())
+        .or_else(|e| e.ignore_invalid_ep_square())
+        .map_err(|_| "that position is not legal".to_string())?;
+    if chess.is_game_over() {
+        return Err("that position has no moves left to play".into());
+    }
+    Ok(PosState::from_chess(chess))
 }
 
 fn err(msg: &str) -> Value {
@@ -844,6 +1074,7 @@ mod tests {
         let (s, emits) = g.handle(&json!({"cmd":"move","uci":"d8h4"}), None);
         assert_eq!(s["status"], json!("checkmate"));
         assert_eq!(s["winner"], json!("b"));
+        assert_eq!(s["moves"].as_array().unwrap().last().unwrap()["san"], json!("Qh4#"));
         assert_eq!(emits.last().unwrap().payload, json!({"status":"checkmate","result":"0-1"}));
     }
     #[test]
@@ -870,6 +1101,149 @@ mod tests {
         g.handle(&json!({"cmd":"chaos","on":false}), None);
         let s = mv(&mut g, "e1d7");
         assert_eq!(s["error"], json!("illegal move"));
+    }
+
+    #[test]
+    fn plies_carry_uci_and_fen() {
+        let mut g = new_game();
+        for u in ["e2e4", "e7e5", "g1f3", "b8c6", "f1c4", "f8c5"] { mv(&mut g, u); }
+        let s = mv(&mut g, "e1h1"); // the rook-square dialect still lands as e1g1
+        let plies = s["plies"].as_array().unwrap();
+        assert_eq!(plies.len(), 7);
+        assert_eq!(plies[0]["uci"], json!("e2e4"));
+        assert_eq!(plies[0]["fen"], json!("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"));
+        assert_eq!(plies[6]["uci"], json!("e1g1"));
+        assert_eq!(plies[6]["fen"], s["fen"]);
+        assert_eq!(s["startFen"], json!("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"));
+        let s = g.handle(&json!({"cmd":"takeback","n":3}), None).0;
+        assert_eq!(s["plies"].as_array().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn engine_seat_is_moved_only_by_the_window_engine() {
+        let mut g = Game::default();
+        g.handle(&json!({"cmd":"seat","color":"w","who":"human"}), None);
+        let s = g.handle(&json!({"cmd":"seat","color":"b","who":"engine:6"}), None).0;
+        assert_eq!(s["black"], json!({"kind":"engine","name":"Stockfish","level":6}));
+        assert_eq!(s["seatsReady"], json!(true));
+        let (_, emits) = g.handle(&json!({"cmd":"new"}), None);
+        assert!(emits.is_empty());
+        let (_, emits) = g.handle(&json!({"cmd":"move","uci":"e2e4"}), None);
+        // nobody to wake: the window plays the engine's side itself
+        assert_eq!(emits.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(), vec!["position"]);
+        // the human cannot move for the engine, nor can an agent
+        assert_eq!(mv(&mut g, "e7e5")["error"], json!("not your turn"));
+        let r = g.handle(&json!({"cmd":"move","uci":"e7e5","engine":true}), Some("a1".into())).0;
+        assert_eq!(r["error"], json!("not your turn"));
+        let r = g.handle(&json!({"cmd":"move","uci":"e7e5","engine":true}), None).0;
+        assert_eq!(r["ok"], json!(true), "{r}");
+        // and the engine cannot move the human's side
+        let r = g.handle(&json!({"cmd":"move","uci":"d2d4","engine":true}), None).0;
+        assert_eq!(r["error"], json!("not your turn"));
+        // levels are clamped
+        let s = g.handle(&json!({"cmd":"seat","color":"b","who":"engine:99"}), None).0;
+        assert_eq!(s["black"]["level"], json!(8));
+    }
+
+    #[test]
+    fn threefold_repetition_is_a_draw() {
+        let mut g = new_game();
+        for u in ["g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1"] {
+            let s = mv(&mut g, u);
+            assert_eq!(s["status"], json!("playing"), "{u}");
+        }
+        let (s, emits) = g.handle(&json!({"cmd":"move","uci":"f6g8"}), None);
+        assert_eq!(s["status"], json!("draw"));
+        assert_eq!(s["drawReason"], json!("repetition"));
+        assert_eq!(emits.last().unwrap().payload, json!({"status":"draw","result":"1/2-1/2"}));
+        // a takeback re-opens it
+        let s = g.handle(&json!({"cmd":"takeback","n":1}), None).0;
+        assert_eq!(s["status"], json!("playing"));
+        assert_eq!(s["drawReason"], Value::Null);
+    }
+
+    #[test]
+    fn say_remembers_who_spoke() {
+        let mut g = new_game();
+        let s = g.handle(&json!({"cmd":"say","text":"hi"}), Some("a1".into())).0;
+        assert_eq!(s["coach"], json!("hi"));
+        assert_eq!(s["coachFrom"], json!("a1"));
+    }
+
+    #[test]
+    fn new_from_a_set_up_position() {
+        let mut g = Game::default();
+        g.handle(&json!({"cmd":"seat","color":"w","who":"human"}), None);
+        g.handle(&json!({"cmd":"seat","color":"b","who":"engine:3"}), None);
+        // Black to move in a K+Q v K ending
+        let fen = "4k3/8/4K3/8/8/8/8/7Q b - - 0 40";
+        let s = g.handle(&json!({"cmd":"new","fen":fen}), None).0;
+        assert_eq!(s["ok"], json!(true), "{s}");
+        assert_eq!(s["fen"], json!(fen));
+        assert_eq!(s["startFen"], json!(fen));
+        assert_eq!(s["turn"], json!("b"));
+        assert_eq!(s["status"], json!("playing"));
+        // a position with a king missing is refused, and so is one that is already mate
+        let r = g.handle(&json!({"cmd":"new","fen":"8/8/8/8/8/8/8/K7 w - - 0 1"}), None).0;
+        assert_eq!(r["error"], json!("that position is not legal"));
+        let r = g.handle(&json!({"cmd":"new","fen":"k6R/8/1K6/8/8/8/8/8 b - - 0 1"}), None).0;
+        assert_eq!(r["error"], json!("that position has no moves left to play"));
+        let r = g.handle(&json!({"cmd":"new","fen":"nonsense"}), None).0;
+        assert_eq!(r["error"], json!("not a valid FEN"));
+    }
+
+    fn timed_game(initial: f64, increment: f64) -> Game {
+        let mut g = Game::default();
+        g.handle(&json!({"cmd":"seat","color":"w","who":"human"}), None);
+        g.handle(&json!({"cmd":"seat","color":"b","who":"human"}), None);
+        g.handle(&json!({"cmd":"new","clock":{"initial":initial,"increment":increment}}), None);
+        g
+    }
+
+    #[test]
+    fn the_clock_starts_with_the_first_move_and_adds_the_increment() {
+        let mut g = timed_game(60.0, 2.0);
+        let s = g.handle(&json!({"cmd":"state"}), None).0;
+        assert_eq!(s["clock"]["running"], Value::Null, "nobody's time runs before a move");
+        assert_eq!(s["clock"]["white"], json!(60_000));
+        mv(&mut g, "e2e4");
+        let s = g.handle(&json!({"cmd":"state"}), None).0;
+        assert_eq!(s["clock"]["running"], json!("b"));
+        assert_eq!(s["clock"]["white"], json!(60_000), "White's first move is free");
+        mv(&mut g, "e7e5");
+        let s = g.handle(&json!({"cmd":"state"}), None).0;
+        assert_eq!(s["clock"]["running"], json!("w"));
+        let b = s["clock"]["black"].as_u64().unwrap();
+        assert!((61_900..=62_000).contains(&b), "Black got the 2 s increment: {b}");
+        // no clock at all without a time control
+        let s = new_game().handle(&json!({"cmd":"state"}), None).0;
+        assert_eq!(s["clock"], Value::Null);
+    }
+
+    #[test]
+    fn running_out_of_time_loses_or_draws() {
+        let mut g = timed_game(60.0, 0.0);
+        mv(&mut g, "e2e4"); // Black's clock runs
+        let mut emits = vec![];
+        assert!(!g.tick_at(Instant::now() + Duration::from_secs(30), &mut emits));
+        assert!(g.tick_at(Instant::now() + Duration::from_secs(61), &mut emits));
+        let s = g.handle(&json!({"cmd":"state"}), None).0;
+        assert_eq!(s["status"], json!("timeout"));
+        assert_eq!(s["winner"], json!("w"));
+        assert_eq!(s["clock"]["black"], json!(0));
+        assert_eq!(emits.last().unwrap().payload, json!({"status":"timeout","result":"1-0","winner":"w"}));
+        // a flag with nothing left to mate with is a draw
+        let mut g = Game::default();
+        g.handle(&json!({"cmd":"seat","color":"w","who":"human"}), None);
+        g.handle(&json!({"cmd":"seat","color":"b","who":"human"}), None);
+        g.handle(&json!({"cmd":"new","fen":"4k3/8/8/8/8/8/4P3/4K3 w - - 0 1","clock":{"initial":10}}), None);
+        mv(&mut g, "e2e4");
+        mv(&mut g, "e8d7"); // White's clock runs, and Black — the side that would win — has a bare king
+        let mut emits = vec![];
+        assert!(g.tick_at(Instant::now() + Duration::from_secs(11), &mut emits));
+        let s = g.handle(&json!({"cmd":"state"}), None).0;
+        assert_eq!(s["status"], json!("draw"));
+        assert_eq!(s["drawReason"], json!("timeout"));
     }
 
     #[test]

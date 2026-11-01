@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="tip" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#F7C29A"/>
+      <stop offset="0.45" stop-color="#E08A4C"/>
+      <stop offset="1" stop-color="#A9552A"/>
+    </linearGradient>
+    <linearGradient id="case" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#FFE59A"/>
+      <stop offset="0.4" stop-color="#F6BF3A"/>
+      <stop offset="1" stop-color="#C8891A"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#F3C24E"/>
+      <stop offset="1" stop-color="#B57812"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(64 64) scale(1.12) rotate(45) translate(-64 -64)">
+    <path d="M64 6c10.5 7.4 15.4 21 15.4 40H48.6C48.6 27 53.5 13.4 64 6z" fill="url(#tip)"/>
+    <path d="M57.2 15.6c-3.4 6.4-5.1 15.2-5.3 27" fill="none" stroke="#FFE7D3" stroke-width="3" stroke-linecap="round" opacity=".75"/>
+    <rect x="47" y="46" width="34" height="58" rx="2.5" fill="url(#case)"/>
+    <rect x="47" y="46" width="34" height="4.5" fill="#B9801A" opacity=".55"/>
+    <rect x="52.5" y="54" width="4.6" height="44" rx="2.3" fill="#FFF6D6" opacity=".7"/>
+    <rect x="49" y="104" width="30" height="4" fill="#9E6912"/>
+    <rect x="44" y="108" width="40" height="10" rx="2.5" fill="url(#rim)"/>
+    <rect x="49" y="110.5" width="5" height="5" rx="1.5" fill="#FFF0BF" opacity=".6"/>
+  </g>
+</svg>

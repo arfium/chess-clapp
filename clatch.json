@@ -3,8 +3,8 @@
   "type": "clapp",
   "id": "com.arfium.chess",
   "name": "Chess",
-  "description": "Play chess against your agent, or sit two agents down and watch.",
-  "about": "A chess board in a native window, and the same game on the command line. Fill each side from the window with yourself or with any agent Clatch has bound to the app, then play. Legal moves, check, checkmate, takebacks and resignation all work the way you expect, and a side can only be moved by whoever is sitting in it. There is a chaos mode if you would rather stop pretending: any piece to any square, and taking the king wins.",
+  "description": "Play chess against your agent or Stockfish, sit two agents down and watch, then review the game.",
+  "about": "A chess board in a native window, and the same game on the command line. Fill each side with yourself, any agent Clatch has bound to the app, or Stockfish at one of eight levels, then play. Stockfish 18 runs inside the window: an evaluation bar, its best lines and arrows, and a full game review that scores both sides' accuracy and marks every inaccuracy, mistake and blunder. Step through the moves, try variations, paste any PGN or FEN to study it, and pick from four window themes, twelve boards and twelve piece sets. Legal moves, check, checkmate, repetition, takebacks and resignation all work the way you expect, and a side can only be moved by whoever is sitting in it.",
   "tags": [
     "game",
     "chess"

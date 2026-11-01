@@ -63,7 +63,7 @@ The protocol major is whatever `clatch.json`'s `protocol` field says — today *
 |---|---|---|---|---|
 | `move` | `run` | after any move, the side to move is an agent → wake it to play | **that agent's id** | `{san?, fen, turn}` |
 | `position` | `buffered` | **every** move → the live board in each agent's chat buffer | broadcast | `{fen, last}` |
-| `game.over` | `context` | the game ends (a move or a resignation) | broadcast | `{status, result[, winner]}` |
+| `game.over` | `context` | the game ends (a move, a resignation, or a flag falling) | broadcast | `{status, result[, winner]}` — `status` includes `timeout` |
 
 `move` is **targeted** at whoever must answer — by agent **id**, resolved from the
 seat (`CLATCH_AGENT_ID` on the roster). A human seat is never woken (it plays in the
@@ -75,7 +75,19 @@ always read the truth via `chess board`.
 
 | clappkit owns it (do not re-implement) | chess owns it |
 |---|---|
-| role dispatch (`role::main_dispatch`), the control pipe + roster (`Control`, `AgentRow`, `Emit`), the GUI↔CLI IPC (`ipc`), the window verbs `ping`/`focus`/`close` (`window` + `app::window_cmd`), the icon (`app::apply_icon`), the `asset` data-URI bridge, the `run_cmd`→`state` relay (`app::spawn_ipc`), the snapshot `rev` (`snapshot::next_rev`), and the front-end half — `useSnapshot` / `useAsset` / `prefetchAssets` / `agentTint` (`@clappkit`, a Vite alias onto `clappkit/web`) | `game.rs` (the game, the seats, chaos mode, the parity tests), `cli.rs` (the verbs, `--help`, the board printer), `app.rs`'s `apply` (one command → response + snapshot + signals), and the whole webview: `App.tsx`, `Board.tsx`, `PlayerStrip.tsx`, `Controls.tsx`, `styles.css` |
+| role dispatch (`role::main_dispatch`), the control pipe + roster (`Control`, `AgentRow`, `Emit`), the GUI↔CLI IPC (`ipc`), the window verbs `ping`/`focus`/`close` (`window` + `app::window_cmd`), the icon (`app::apply_icon`), the `asset` data-URI bridge, the `run_cmd`→`state` relay (`app::spawn_ipc`), the snapshot `rev` (`snapshot::next_rev`), and the front-end half — `useSnapshot` / `useAsset` / `prefetchAssets` / `agentTint` / `cmd` (`@clappkit`, a Vite alias onto `clappkit/web`) | `game.rs` (the game, the seats, chaos mode, the parity tests), `cli.rs` (the verbs, `--help`, the board printer), `app.rs`'s `apply` (one command → response + snapshot + signals), and the whole webview (`src/`, below) |
+
+The webview, `src/`:
+
+| where | what |
+|---|---|
+| `App.tsx` | the shell: the rail of modes, which position each mode puts on the board, the golden-ratio layout, keyboard, premove, hint |
+| `modes/` | `NewGame` (opponent, colour, position, Start Game), `Editor` (Board Editor state + panel), `Review` (accuracy, verdict card) |
+| `components/` | `Board` (sliding pieces, drag & drop, arrows, promotion, premove, editor tools), `MoveTree` (main line + nested variations, right-click actions), `Rail`, `EvalBar`, `EvalGraph`, `PlayerStrip`, `EnginePanel`, `SettingsDialog`, `ImportDialog`, `ResultCard`, `San`, `ui` |
+| `engine/` | `engine.ts` (Stockfish in a Worker, UCI), `useAnalysis` (live lines), `useEnginePlayer` (plays a Stockfish seat), `review.ts` (accuracy + move verdicts), `levels.ts` |
+| `lib/` | `tree.ts` (the move tree every mode uses; `syncLive` keeps Play's main line equal to the core's game), `chess.ts` (chess.js helpers, PGN/FEN), `openings.ts`, `settings.ts` (localStorage), `themes.ts` (boards, piece sets, frame colour), `oklch.ts`, `sound.ts` (recorded samples) |
+| `dev/` | the browser stand-in for the core — `npm run dev:mock`, never built into the app |
+| `public/` | `engine/` (Stockfish 18 WASM, GPL-3.0 — see THIRD_PARTY_NOTICES), `pieces/<set>/`, `sounds/`, `openings.json` |
 
 If you find yourself writing plumbing that is not about chess, it probably belongs in
 clappkit — look there first. clappkit is a sibling directory shared by all five clapps,
@@ -92,7 +104,7 @@ so a change there is a change to all of them.
   the agent's PATH does not wait for a GUI-subsystem process). The comment at the top of
   `main.rs` is there to stop it being re-added.
 - **Seats + ownership, server-side:** each side is a `Seat` (`Empty` | `Human` |
-  `Agent(id)`), filled from the player strips. Both start **empty**; a game can't start
+  `Agent(id)` | `Engine(level)`), filled from the player strips. Both start **empty**; a game can't start
   until both are filled (`seatsReady`). `Game::play` lets a side be moved only by its
   occupant — a real agent (its `CLATCH_AGENT_ID`) is held to its own seat; the standalone
   dev hatch (no id) may move either side. Roster + avatars arrive on the control pipe's
@@ -108,9 +120,70 @@ so a change there is a change to all of them.
   `apply` returns both in one `Reply`).
 - **Sandbox-aware CLI errors** come from `clappkit::ipc`: "the app is not running" when
   nothing is listening, and a distinct message when the sandbox blocks the socket.
-- **The board** renders cburnett pieces on a lichess-style green/cream board with a light
-  native control bar — a 1:1 port of `BoardView.swift`. Visual parity with the Swift
-  original has been audited and signed off: don't restyle it.
+- **The window is ours to design — and it has a system.** `src/styles.css` opens with it:
+  two objects on a desk (the framed board and the scoresheet, sheet width = frame ÷ φ,
+  shared top and bottom edges — `App.tsx` computes the sizes), ink vs print (moves and
+  results in `--pen`, everything printed in graphite/grey; `--flag` only for check,
+  blunders, resigning), Fibonacci spacing, concentric radii, a √φ type scale, three
+  faces (Newsreader for announcements only, never italic; IBM Plex Sans; Plex Mono for
+  FEN/ECO). Every colour is a token; add a token before using a new colour. The design
+  record is `.hallmark/log.json`. `native/` is the reference for the *game's* behaviour,
+  not for the look.
+- **The window has four modes** (the rail): Play (New Game → the game → result), Analysis,
+  Board Editor, Game Review. Each keeps its own move tree; only a move on the live
+  position in Play reaches the core. `new` takes an optional `fen` ("Play from Here") —
+  a legal position with moves left, refused otherwise. UI copy is labels and short
+  feedback, never explanation.
+- **The clock lives in the core** (`Clock` in `game.rs`): `new` takes `clock: {initial,
+  increment}` in seconds; it starts with the first move; `app.rs` ticks it every 100 ms
+  so a flag falls with nobody sending a command (status `timeout`, or a draw when the
+  winner cannot mate). The window only counts down between snapshots.
+- **The speed marks** (`src/assets/speed/`): Noto Emoji's ⚡ and ⏱ (Apache-2.0) and a
+  bullet drawn in the same style; full-colour SVG rendered as `<img>` (CSS masks of
+  SVGs without width/height fail in WebKit — that was a flat square).
+- **Verdict marks are our own drawing** (`scripts/build-verdicts.mjs` → `src/assets/verdict/`,
+  shown by `VerdictIcon`): a coloured disc on a darker lip with a shadowed white glyph, in
+  the convention players know from the big sites — but drawn here, not copied (their
+  files are not licensed for reuse). Board badge, move list, tally and verdict card all
+  use the same file.
+- **Classification follows chess.com** as far as it is published (support article
+  "How are moves classified?") and, where it is not, the reading WintrChess
+  reverse-engineered from chess.com's results (GPL-3.0: we reimplement the method, never
+  copy the code):
+  - point loss in chess.com's bands (2 / 5 / 10 / 20 win-% points); a forced mate on either
+    side is graded by what is left instead (`byLoss` in `engine/review.ts`) — letting a
+    mate go to +8 is excellent, not a blunder;
+  - *Brilliant* = the best move (or < 1 point off), a **piece left en prise**
+    (`engine/sacrifice.ts`: attackers with x-rays vs. recapturers, minus rescues, poisoned
+    pieces and trapped ones — whether or not the best reply takes it), not in check or
+    forced, not worse than equal after it, and the next-best move not already +7 or a
+    mate. A mating move is Best, never Brilliant;
+  - *Great* = the best move when the next best loses ≥ 10 points, under the same gate,
+    and not just taking a hanging piece.
+  `npm test` runs `scripts/test-sacrifice.mjs` — positions the detector must get right.
+- **Check the UI in WebKit, not Chromium** — `scripts/webkit-snap.swift` renders a page
+  in WKWebView (hidden-page throttling off, transitions frozen); `SNAP_AFTER=s` waits
+  that long after the script, enough for a whole Game Review.
+- **Sounds are recordings, not synthesis**, conformed to lichess's standard set and
+  played with lichess's mapping (move, capture, notify, error — no check sound). The
+  pipeline is `scripts/sounds/`; provenance is in THIRD_PARTY_NOTICES.
+- **Stockfish runs in the webview**, never in the core: the lite single-threaded WASM
+  build in a Worker (`src/engine/engine.ts`). A `Seat::Engine(level)` is only a seat to
+  the core — the window searches and plays it back with `{cmd:"move", engine:true}`,
+  which the core accepts only for an engine seat and never from an agent (an agent's
+  request always carries its id). The WASM engine aborts on impossible positions, so
+  every caller checks `engineSafe()` first.
+- **The snapshot's `plies`** (`{uci, fen, from, to}` per half-move, parallel to `moves`)
+  and `startFen` are what the history browser, the engine and the review read; `moves`
+  keeps its old `{san, color}` shape for the CLI and the tests.
+- **Check the look in WebKit, not Chromium.** The app renders in WKWebView on macOS, and
+  WebKit differs (CSS masks of SVGs, transitions, colour functions). With `npm run
+  dev:mock` running: `swiftc -O scripts/webkit-snap.swift -o /tmp/snap && /tmp/snap
+  http://localhost:1422/ out.png 1180 792 "<js to run first>" 3 [dark]` — it renders
+  off-screen, needs no screen-recording permission, and freezes transitions.
+- **Try the window in a browser:** `npm run dev:mock` (port 1422) aliases the two Tauri
+  modules to `src/dev/`, a chess.js stand-in for the core with two fake agents that play
+  random moves. Stockfish, review and every panel work there.
 - The **frozen, normative** contract (manifest + control pipe) is
   [clappkit/docs/protocol.md](clappkit/docs/protocol.md) — The Clapp Protocol. Protocol wins. (Clatch's
   own [`reference/`](https://github.com/arfium/clatch) specs cover launcher internals.)

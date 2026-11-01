@@ -16,16 +16,27 @@ import path from "node:path";
 // up from a directory that has no node_modules — hence the two aliases below, which point
 // them at this app's copies (the same copies the app itself uses, so React is never
 // duplicated).
-export default defineConfig({
+//
+// `--mode mock` (`npm run dev:mock`) swaps the two Tauri modules for src/dev/, a chess.js
+// stand-in for the core, so the window can be worked on in an ordinary browser. The
+// specific aliases must come before the `@tauri-apps/api` prefix alias, which is why
+// this is the array form.
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
   clearScreen: false,
   resolve: {
-    alias: {
-      "@clappkit": path.resolve(__dirname, "clappkit/web"),
-      react: path.resolve(__dirname, "node_modules/react"),
-      "@tauri-apps/api": path.resolve(__dirname, "node_modules/@tauri-apps/api"),
-    },
+    alias: [
+      ...(mode === "mock"
+        ? [
+            { find: "@tauri-apps/api/core", replacement: path.resolve(__dirname, "src/dev/mock-core.ts") },
+            { find: "@tauri-apps/api/event", replacement: path.resolve(__dirname, "src/dev/mock-event.ts") },
+          ]
+        : []),
+      { find: "@clappkit", replacement: path.resolve(__dirname, "clappkit/web") },
+      { find: "react", replacement: path.resolve(__dirname, "node_modules/react") },
+      { find: "@tauri-apps/api", replacement: path.resolve(__dirname, "node_modules/@tauri-apps/api") },
+    ],
   },
-  server: { port: 1421, strictPort: true, fs: { allow: ["."] } },
+  server: { port: mode === "mock" ? 1422 : 1421, strictPort: true, fs: { allow: ["."] } },
   build: { target: "safari15" },
-});
+}));

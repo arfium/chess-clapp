@@ -14,17 +14,16 @@
       {
         "label": "main",
         "title": "Chess",
-        "width": 576,
-        "height": 772,
-        "minWidth": 576,
-        "minHeight": 772,
-        "maxWidth": 576,
-        "maxHeight": 772,
-        "resizable": false,
-        "maximizable": false,
+        "width": 1180,
+        "height": 820,
+        "minWidth": 900,
+        "minHeight": 640,
+        "resizable": true,
+        "maximizable": true,
         "fullscreen": false,
         "center": true,
-        "theme": "Light"
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {

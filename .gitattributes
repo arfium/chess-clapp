@@ -10,3 +10,5 @@
 *.clapp binary
 *.ttf binary
 *.woff2 binary
+*.wasm binary
+*.jpg binary

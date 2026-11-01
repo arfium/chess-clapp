@@ -33,6 +33,28 @@ pub fn run() {
         .manage(control.clone())
         .setup(move |app| {
             clappkit::app::apply_icon(app.handle(), ICON_PNG);
+            // The chess clock's heartbeat: a flag falls even when nobody sends a command.
+            {
+                let game = game.clone();
+                let control = control.clone();
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut every = tokio::time::interval(std::time::Duration::from_millis(100));
+                    loop {
+                        every.tick().await;
+                        let (snapshot, emits) = {
+                            let mut g = game.lock().await;
+                            let mut emits = Vec::new();
+                            if !g.tick(&mut emits) {
+                                continue;
+                            }
+                            (g.snapshot(None), emits)
+                        };
+                        control.emit_all(emits);
+                        clappkit::app::push_state(&handle, snapshot);
+                    }
+                });
+            }
             // The agent's private GUI↔CLI channel. `ping` / `focus` / `close` are answered
             // by clappkit before the game sees them; everything else lands in `apply` with
             // the caller's agent id attached.

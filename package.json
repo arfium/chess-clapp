@@ -14,11 +14,17 @@
     "check": "node scripts/check-manifest.mjs",
     "typecheck": "tsc --noEmit",
     "icon": "sh scripts/render-icon.sh",
-    "test": "cargo test --manifest-path src-tauri/Cargo.toml",
-    "tauri": "tauri"
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml && node scripts/test-sacrifice.mjs",
+    "tauri": "tauri",
+    "dev:mock": "vite --mode mock",
+    "openings": "node scripts/build-openings.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/newsreader": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
     "@tauri-apps/api": "^2",
+    "chess.js": "^1.4.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

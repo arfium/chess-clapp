@@ -4,6 +4,83 @@ All notable changes to chess. Format:
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning: pre-1.0, minor
 bumps may break (SemVer 0.x rules).
 
+## [Unreleased]
+
+### Added
+- **Modes:** a rail with Play, Analysis, Board Editor and Game Review.
+  - **New Game** chooses everything up front: Play (Stockfish 1–8, any agent, Pass and
+    Play) with White / Random / Black, or Watch (any two of agents and Stockfish levels);
+    a set-up position; chaos mode. Start Game seats both sides and starts.
+  - **In the game:** Takeback, Hint (Stockfish's best move as an arrow), Resign, New
+    Game; **premoves** while the opponent thinks.
+  - **Board Editor:** piece palette, eraser, drag to move, side to move, castling
+    rights, FEN in and out; Analyze or Play from Here.
+  - **Analysis:** a real move tree — variations nest under the move they replace;
+    right-click to promote or delete.
+  - **Game Review** opens on the finished game, runs by itself, and judges each move
+    ("Qxd4 is a blunder") with the better move one click away. **Brilliant** marks a sound
+    sacrifice; every verdict has its own mark — a coloured disc with !!, !, ★, 👍, ✓, a book, ?!,
+    ? or ?? — on the board, in the move list and in the tally.
+- **Clocks and speeds:** Bullet (1, 1|1, 2|1), Blitz (3, 3|2, 5), Rapid (10, 15|10, 30) or
+  no clock, chosen in New Game; clock faces on the nameplates; a flag ends the game
+  (`timeout`, or a draw against a bare king). The clock runs in the core, so agents see
+  it in `chess board`. Stockfish budgets its thinking time on a clock.
+- **Core:** `new` accepts `fen` to start from a set-up position; `chess board` numbers
+  moves from that position.
+- **Stockfish 18 in the window** (lite single-threaded WASM, in a Worker): an eval bar,
+  up to five engine lines with clickable moves, best-move arrows.
+- **Stockfish as a player.** A seat can be `engine:<1-8>`; the window plays it. You vs
+  Stockfish, an agent vs Stockfish, Stockfish vs Stockfish.
+- **Game review:** per-side accuracy and ACPL, a verdict on every move (best, great,
+  excellent, good, book, inaccuracy, mistake, blunder), the evaluation graph, turning
+  points with the engine's alternative, and a PGN export that carries the verdicts.
+- **An analysis board:** step through the moves, branch into variations, paste any PGN
+  or FEN; opening names (lichess-org/chess-openings, CC0) for every position.
+- **A designed window:** the framed board and a FIDE-style scoresheet side by side in the
+  golden ratio; moves written in ballpoint, the form printed in graphite; Fibonacci
+  spacing, concentric corners, Newsreader + IBM Plex (bundled). Window themes
+  Scoresheet, Night and Walnut (or follow the system); twelve board colours with
+  matching frames and coordinates on the frame; twelve piece sets; figurine notation;
+  drag & drop with sliding pieces; right-click arrows and circles; captured material on
+  the nameplates; a result slip; one-click pairings; keyboard navigation.
+- **Recorded board sounds** (CC0 wooden pieces), conformed to lichess's standard set
+  and played on lichess's cues.
+- **Core:** threefold repetition is a draw (`drawReason`: `repetition` | `fifty` |
+  `insufficient`); SAN carries `+`/`#`; the snapshot gains `plies` (UCI + FEN per
+  half-move), `startFen`, `coachFrom`, and `level` on an engine seat. `chess board`
+  names the engine's level and the reason for a draw.
+- `npm run dev:mock` — the window in a browser against a chess.js stand-in for the core.
+
+### Changed
+- The window is resizable (1180 × 820 by default, 900 × 640 at least) with a
+  full-height layout and, on macOS, an inset title bar. It is no longer a pixel copy of
+  the Swift original.
+- Taking back a move on your own turn against an agent or Stockfish undoes their reply
+  too, so the turn comes back to you.
+
+### Fixed
+- **Settings drew empty previews** — in WebKit the window and board swatches collapsed to
+  nothing. Settings is now a preferences window: pages down the side, and the Board page
+  opens on a live board that shows every colour, piece and highlight choice as it is made.
+- **The window re-subscribed to the system theme on every render** — dozens of times a
+  second while the engine ran.
+- **Dialogs lost focus while the engine ran** — every depth update re-ran the dialog's
+  focus handling, pulling the cursor out of the PGN/FEN box mid-paste. Focus is now taken
+  once, when the dialog opens.
+- **The eval graph filled a straight wedge** instead of the area under the curve.
+- **Brilliant now matches chess.com's rule** — "a good piece sacrifice" from the best
+  move. The old check only counted material the engine's first reply took, so it missed
+  pieces left en prise that the opponent must not take (Legal's 5.Nxe5) and counted ones
+  that were lost anyway. Sacrifices are now read off the board (attackers, x-rays,
+  recapturers, poisoned and trapped pieces), and "completely winning anyway" is judged by
+  the next-best move, as chess.com does. Great follows the same gate.
+- **Letting a mate go was a blunder** even when +8 was left (Morphy's 15.Bxd7+). A
+  forced mate is now graded by what remains, not by the win-% curve.
+- **Captured black pieces vanished on the dark themes** — on Night and Walnut they now
+  carry a one-pixel light outline, so they read against the desk.
+- **A PGN without player tags showed "?" for both names** — chess.js's placeholder tags
+  are now dropped on import, so the plates read White and Black.
+
 ## [0.3.0] - 2026-08-23
 
 ### Changed

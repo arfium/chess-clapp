@@ -9,11 +9,14 @@ const HELP: &str = "\
 chess — play chess. The human drives a window; you drive this CLI on the same live game.
 
 Each side of the board is a SEAT — White or Black — and the human assigns the seats in
-the window: You, a specific agent, or (both seats agents) agent-vs-agent. You are woken
+the window: You, a specific agent, or Stockfish (the window plays its moves) — so you may
+face the human, another agent, or the engine. You are woken
 only when it is YOUR seat's turn: Clatch delivers a `move` signal, you read the real
 board with `board` (it prints \"you are White/Black\"), then play with `move`. You may
 move ONLY on your turn — the app enforces it, so in an agent-vs-agent game neither side
 can move for the other. If you were not given a seat, `board` won't say a colour; don't move.
+A game may have a clock (Bullet, Blitz, Rapid): `board` then shows both clocks, yours
+runs while it is your turn, and running out of time loses the game.
 
 usage:
   chess board                 print the board, whose turn, the move list, your colour
@@ -118,25 +121,48 @@ fn print_result(verb: &str, v: &Value) {
         "idle" => println!("no game in progress"),
         "checkmate" => println!("checkmate — {} wins", color_word(v.get("winner").and_then(Value::as_str).unwrap_or("w"))),
         "resigned" => println!("{} wins by resignation", color_word(v.get("winner").and_then(Value::as_str).unwrap_or("w"))),
+        "timeout" => println!("{} wins on time", color_word(v.get("winner").and_then(Value::as_str).unwrap_or("w"))),
         "stalemate" => println!("stalemate — draw"),
-        "draw" => println!("draw"),
+        "draw" => match v.get("drawReason").and_then(Value::as_str) {
+            Some("repetition") => println!("draw by threefold repetition"),
+            Some("fifty") => println!("draw by the fifty-move rule"),
+            Some("insufficient") => println!("draw — insufficient material"),
+            Some("timeout") => println!("draw — time ran out, but the other side cannot mate"),
+            _ => println!("draw"),
+        },
         "ended" => println!("game ended"),
         _ => println!("{} to move{}", color_word(turn), if v.get("inCheck").and_then(Value::as_bool) == Some(true) { " — CHECK" } else { "" }),
     }
+    if let Some(c) = v.get("clock").filter(|c| !c.is_null()) {
+        let t = |k: &str| fmt_clock(c.get(k).and_then(Value::as_u64).unwrap_or(0));
+        let running = c.get("running").and_then(Value::as_str);
+        let mark = |side: &str| if running == Some(side) { " (running)" } else { "" };
+        println!("clock: White {}{}   Black {}{}", t("white"), mark("w"), t("black"), mark("b"));
+    }
     if let Some(moves) = v.get("moves").and_then(Value::as_array) {
         if !moves.is_empty() {
+            // Number from the position the game started in (a set-up position may begin
+            // at move 30, or with Black to move).
+            let start = v.get("startFen").and_then(Value::as_str).unwrap_or("");
+            let mut no: u64 = start.split(' ').nth(5).and_then(|n| n.parse().ok()).unwrap_or(1);
             let mut line = String::from("moves:");
             for (i, m) in moves.iter().enumerate() {
-                if i % 2 == 0 {
-                    line.push_str(&format!(" {}.", i / 2 + 1));
+                let white = m.get("color").and_then(Value::as_str) != Some("b");
+                if white {
+                    line.push_str(&format!(" {no}."));
+                } else if i == 0 {
+                    line.push_str(&format!(" {no}..."));
                 }
                 line.push_str(&format!(" {}", m.get("san").and_then(Value::as_str).unwrap_or("")));
+                if !white {
+                    no += 1;
+                }
             }
             println!("{line}");
         }
     }
-    let wp = v.pointer("/white/name").and_then(Value::as_str).unwrap_or("—");
-    let bp = v.pointer("/black/name").and_then(Value::as_str).unwrap_or("—");
+    let wp = seat_name(v.get("white"));
+    let bp = seat_name(v.get("black"));
     if status != "idle" {
         let mut line = format!("White: {wp}   Black: {bp}");
         if let Some(yc) = v.get("yourColor").and_then(Value::as_str) {
@@ -149,6 +175,27 @@ fn print_result(verb: &str, v: &Value) {
     }
     if let Some(note) = v.get("coach").and_then(Value::as_str).filter(|s| !s.is_empty()) {
         println!("note: {note}");
+    }
+}
+
+/// A seat as `board` names it: the occupant's name, and Stockfish's strength level.
+fn seat_name(p: Option<&Value>) -> String {
+    let name = p.and_then(|p| p.get("name")).and_then(Value::as_str).unwrap_or("—");
+    match p.and_then(|p| p.get("level")).and_then(Value::as_u64) {
+        Some(level) => format!("{name} (level {level})"),
+        None => name.to_string(),
+    }
+}
+
+/// 1:05:03 · 4:07 · 0:09.4 — tenths only when it is getting close.
+fn fmt_clock(ms: u64) -> String {
+    let s = ms / 1000;
+    if s >= 3600 {
+        format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+    } else if ms < 10_000 {
+        format!("0:{:02}.{}", s, ms % 1000 / 100)
+    } else {
+        format!("{}:{:02}", s / 60, s % 60)
     }
 }
 
